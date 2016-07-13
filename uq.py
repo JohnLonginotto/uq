@@ -93,17 +93,37 @@ Note: I'm starting to think I should scrap all lossy methods except --order and 
 parser = argparse.ArgumentParser(     description="Put in a FASTQ file, get out a microq (uq) file.")
 parser.add_argument("-i", "--input",  required=True,                      help='Required. Input FASTQ file path.')
 parser.add_argument("-o", "--output",                                     help='Optional. Default is to append .uq to input filename.')
+parser.add_argument("--rotate",       nargs='+', metavar='file name',     help='Optional. Rotate an output struct 90 degrees before saving. Helps with some compressors. Will be un-rotated automatically. Typing the name twice rotates twice. [DNA/QUAL/QNAME]')
+parser.add_argument("--raw",          nargs='+', metavar='file name',     help='Optional. Saves data as a raw table rather than unique/key combo. Helps with some compressors. [DNA/QUAL/QNAME]')
 parser.add_argument("--temp",                                             help='Optional. Directory to write small temporary files to.')
 parser.add_argument("--dna",                                              help='Optional. [drop/hide] - see readme/code for details.')
 parser.add_argument("--qual",                                             help='Optional. [nearest/weighted] [N] - see readme/code for details.')
 parser.add_argument("--qname",                                            help='Optional. [unique/duplicate] - see readme/code for details.')
 parser.add_argument("--reorder",      action='store_true', default=False, help='Optional. No parameters - see readme/code for details.')
+parser.add_argument("--test",         action='store_true', default=False, help='Optional. Writes a uq tar file with every possible data output orientation. Compress them all with your compressor of choice to find the appropriate values for --raw and --rotate.')
 parser.add_argument("--pad",          action='store_true', default=False, help='Optional. Pads DNA/QUAL to the nearest 2/4/8 bits. Some compressors do a better job when data is padded.')
 parser.add_argument("--peek",         action='store_true', default=False, help='Optional. No output files are created, the input is just scanned for the parameters that *would* be used.')
 parser.add_argument("--paranoid",     action='store_true', default=False, help='Optional. After encoding, will attempt to decode the output and compare its MD5 to the original input FASTQ (only works for lossless encoding)')
 parser.add_argument("--delete",       action='store_true', default=False, help='Optional. Input file is deleted if no issues occur during encoding. If --paranoid used, only deletes if this returns successfully.')
 parser.add_argument("--decode",       action='store_true', default=False, help='Requred if you want to decode a .uq file back to .fastq :)')
 args = parser.parse_args()
+
+if args.rotate:
+    for x in args.rotate:
+        if x not in ['DNA','QUAL','QNAME']:
+            print 'ERROR: When using --rotate, you must specificy if you wish to rotate "DNA", "QUAL" or "QNAME" tables.'
+            print '       If you specify the same table more than once, it will be rotated 90 degrees more than once.'
+            exit()
+    rotations = collections.Counter(args.rotate)
+else: rotations = collections.Counter([])
+if args.raw:
+    for x in args.raw:
+        if x not in ['DNA','QUAL','QNAME']:
+            print 'ERROR: When using --raw, you must specificy if which tables, "DNA", "QUAL" or "QNAME", you wish to keep as raw.'
+            exit()
+    args.raw = set(args.raw)
+else: args.raw = set()
+
 
 if args.qname or args.qual or args.dna or args.paranoid or args.delete: print 'Not implimented yet.'; exit()
 
@@ -114,7 +134,6 @@ if args.decode:
         if not tarfile.is_tarfile(os.path.join(args.input,'config.json')):
             print 'ERROR: Sorry, the DIRECTORY you have used as a decoding input does not include the config.json file.'; exit()
     else: print 'ERROR: Sorry, the path you have provided as input does not exist - please check it and try again :)'; exit() 
-
 else:
     if not os.path.isfile(args.input):  print 'ERROR: Sorry, the input path you have specified is not a file path. Please check it and try again! :)'; exit()
     temp_directory = args.temp if args.temp else tempfile.mkdtemp()
@@ -410,45 +429,78 @@ else:
             ar.dtype = ','.join(columns*['uint8'])
             ar.shape = length
 
-        def write_out(table,filename):
+        def write_out(table,filename,rotations):
             with open(os.path.join(temp_directory,filename),'wb') as out_file:
-                numpy.save(out_file,table)
+                numpy.savez(out_file,table=table,rotations=rotations)
         def read_in(filename): return numpy.load(os.path.join(temp_directory,filename))
 
-        write_out(dna_array,'DNA.raw'); del dna_array # Free up some RAM for the impending sort. Will process it later.
+        write_out(dna_array,'DNA.raw',0); del dna_array # Free up some RAM for the impending sort. Will process it later.
+        if args.test:
+            struct_to_std(qual_array)
+            write_out(numpy.rot90(qual_array,0),'QUAL.raw',0)
+            write_out(numpy.rot90(qual_array,1),'QUAL.raw.rotate1',1)
+            write_out(numpy.rot90(qual_array,2),'QUAL.raw.rotate2',2)
+            write_out(numpy.rot90(qual_array,3),'QUAL.raw.rotate3',3)
+            std_to_struct(qual_array)
 
-        qual_array,qual_key = numpy.unique(qual_array, return_inverse=True)
-        if   len(qual_array) <= 256:                  qual_key_dtype = 'uint8'   #; qual_key = qual_key.astype(qual_key_dtype)
-        elif len(qual_array) <= 65536:                qual_key_dtype = 'uint16'  #; qual_key = qual_key.astype(qual_key_dtype)
-        elif len(qual_array) <= 4294967296:           qual_key_dtype = 'uint32'  #; qual_key = qual_key.astype(qual_key_dtype)
-        elif len(qual_array) <= 18446744073709551616: qual_key_dtype = 'uint64'  #; qual_key = qual_key.astype(qual_key_dtype)
-        write_out(qual_key,'QUAL.key'); del qual_key
-        write_out(qual_array,'QUAL.not')
-        struct_to_std(qual_array)
-        write_out(numpy.rot90(qual_array),'QUAL.rot')
+        if 'QUAL' in args.raw and not args.test:
+            struct_to_std(qual_array)
+            write_out(numpy.rot90(qual_array,rotations['QUAL']),'QUAL.raw',rotations['QUAL'])
+            del qual_array
+        else:
+            qual_array,qual_key = numpy.unique(qual_array, return_inverse=True)
+            if   len(qual_array) <= 256:                  qual_key_dtype = 'uint8'   #; qual_key = qual_key.astype(qual_key_dtype)
+            elif len(qual_array) <= 65536:                qual_key_dtype = 'uint16'  #; qual_key = qual_key.astype(qual_key_dtype)
+            elif len(qual_array) <= 4294967296:           qual_key_dtype = 'uint32'  #; qual_key = qual_key.astype(qual_key_dtype)
+            elif len(qual_array) <= 18446744073709551616: qual_key_dtype = 'uint64'  #; qual_key = qual_key.astype(qual_key_dtype)
+            write_out(qual_key,'QUAL.key',0); del qual_key
+            struct_to_std(qual_array)
+            if args.test:
+                write_out(numpy.rot90(qual_array,0),'QUAL',0)
+                write_out(numpy.rot90(qual_array,1),'QUAL.rotate1',1)
+                write_out(numpy.rot90(qual_array,2),'QUAL.rotate2',2)
+                write_out(numpy.rot90(qual_array,3),'QUAL.rotate3',3)
+            else:
+                write_out(numpy.rot90(qual_array,rotations['QUAL']),'QUAL',rotations['QUAL'])
+            del qual_array
 
         print 'Finished sorting qualities',status.split_time(),'sorting DNA...'
 
-        dna_array,dna_key = numpy.unique(read_in('DNA.raw'), return_inverse=True )
-        if   len(dna_array) <= 256:                  dna_key_dtype = 'uint8'   #; dna_key = dna_key.astype(dna_key_dtype)
-        elif len(dna_array) <= 65536:                dna_key_dtype = 'uint16'  #; dna_key = dna_key.astype(dna_key_dtype)
-        elif len(dna_array) <= 4294967296:           dna_key_dtype = 'uint32'  #; dna_key = dna_key.astype(dna_key_dtype)
-        elif len(dna_array) <= 18446744073709551616: dna_key_dtype = 'uint64'  #; dna_key = dna_key.astype(dna_key_dtype)
-        write_out(dna_key,'DNA.key'); del dna_key
-        struct_to_std(dna_array)
-        write_out(numpy.rot90(dna_array),'DNA')
-        del dna_array
-        print 'Encoded DNA and Qualities written to disk!\n',status.split_time()
+        dna_array = read_in('DNA.raw')['table']
+        os.remove(os.path.join(temp_directory,'DNA.raw'))  # I apprechiate this is dumb if we're going to write it out again, but need to allow for rotation.
+        if args.test:
+            struct_to_std(dna_array)
+            write_out(numpy.rot90(dna_array,0),'DNA.raw',0)
+            write_out(numpy.rot90(dna_array,1),'DNA.raw.rotate1',1)
+            write_out(numpy.rot90(dna_array,2),'DNA.raw.rotate2',2)
+            write_out(numpy.rot90(dna_array,3),'DNA.raw.rotate3',3)
+            std_to_struct(dna_array)
+
+        if 'DNA' in args.raw and not args.test:
+            struct_to_std(dna_array)
+            write_out(numpy.rot90(dna_array,rotations['DNA']),'DNA.raw',rotations['DNA'])
+            del dna_array
+        else:
+            dna_array,dna_key = numpy.unique(dna_array, return_inverse=True)
+            if   len(dna_array) <= 256:                  dna_key_dtype = 'uint8'   #; dna_key = dna_key.astype(dna_key_dtype)
+            elif len(dna_array) <= 65536:                dna_key_dtype = 'uint16'  #; dna_key = dna_key.astype(dna_key_dtype)
+            elif len(dna_array) <= 4294967296:           dna_key_dtype = 'uint32'  #; dna_key = dna_key.astype(dna_key_dtype)
+            elif len(dna_array) <= 18446744073709551616: dna_key_dtype = 'uint64'  #; dna_key = dna_key.astype(dna_key_dtype)
+            write_out(dna_key,'DNA.key',0); del dna_key
+            struct_to_std(dna_array)
+            if args.test:
+                write_out(numpy.rot90(dna_array,0),'DNA',0)
+                write_out(numpy.rot90(dna_array,1),'DNA.rotate1',1)
+                write_out(numpy.rot90(dna_array,2),'DNA.rotate2',2)
+                write_out(numpy.rot90(dna_array,3),'DNA.rotate3',3)
+            else:
+                write_out(numpy.rot90(dna_array,rotations['DNA']),'DNA',rotations['DNA'])
+            del dna_array
+            print 'Encoded DNA and Qualities written to disk!\n',status.split_time()
 
 
 
 
-
-
-
-
-    def write_out(table,filename): numpy.save(os.path.join(temp_directory,filename),table)
-    def read_in(filename): return numpy.load(os.path.join(temp_directory,filename))
 
     status.message = 'Step 3 of 4: Analysing QNAME data between delimiters.'
     if len(separators):
@@ -540,50 +592,36 @@ else:
         print 'Optimal encoding method for delimited data in QNAME determined!',status.split_time()
 
         qname_dtype = []
-        max_dtype = 0
         for idx,column_description in enumerate(columnType):
             # Now we fiddle with things a bit:
             if column_description[0] == 'coded':
-                if max_dtype < len(column_description[1]): max_dtype = len(column_description[1])
-                if   len(column_description[1]) <= 255:                  column_description.append('uint8')
-                elif len(column_description[1]) <= 65535:                column_description.append('uint16')
-                elif len(column_description[1]) <= 4294967295:           column_description.append('uint32')
-                elif len(column_description[1]) <= 18446744073709551615: column_description.append('uint64')
+                i = len(column_description[1])
+                if   i <= 255:                  column_description.append('uint8')
+                elif i <= 65535:                column_description.append('uint16')
+                elif i <= 4294967295:           column_description.append('uint32')
+                elif i <= 18446744073709551615: column_description.append('uint64')
                 column_description[1] = tuple(sorted(column_description[1])) # sets have no order, so we tuple to fix things in place.
             elif column_description[0] == 'ints':
                 i = column_description[2]-column_description[1] +1
-                if max_dtype < i: max_dtype = i
                 if   i <= 255:                  column_description[2] = 'uint8'
                 elif i <= 65535:                column_description[2] = 'uint16'
                 elif i <= 4294967295:           column_description[2] = 'uint32'
                 elif i <= 18446744073709551615: column_description[2] = 'uint64'
             elif column_description[0] == 'strings':
                 print 'I havent implimented this yet'; exit()
-                max_dtype = 99999999999999999999 # basically, there is no dtype that will satisfy strings, so no rotation will be done later.
-                if   column_description[1] <= 255:                  column_description.append('uint8')
-                elif column_description[1] <= 65535:                column_description.append('uint16')
-                elif column_description[1] <= 4294967295:           column_description.append('uint32')
-                elif column_description[1] <= 18446744073709551615: column_description.append('uint64')
             print '    - Column',idx+1,'is type',column_description[0],'stored as',column_description[2]
             qname_dtype.append(column_description[2])
+        max_dtype = 'uint' + str(max([ int(x[4:]) for x in qname_dtype])) # The largest dtype in all the QNAME columns.
         qname_dtype = ','.join(qname_dtype)
-        if   max_dtype <= 255:                  max_dtype = 'uint8'
-        elif max_dtype <= 65535:                max_dtype = 'uint16'
-        elif max_dtype <= 4294967295:           max_dtype = 'uint32'
-        elif max_dtype <= 18446744073709551615: max_dtype = 'uint64'
     else: print 'Step 3 of 4: Skipped as there are no delimiters common to all QNAMEs'
-
-
-
-
-
-
 
 
     if not args.peek:
         print ''
         status.message = 'Step 4 of 4: Encoding QNAME with optimized settings.'
         qname_array = numpy.zeros(status.total,numpy.dtype(qname_dtype))
+        rows = len(qname_array)
+        columns = len(qname_array.dtype)
         qnames = qname_reader(args.input,prefix,suffix)
         encoder = 'for row,qname in enumerate(qnames):\n    qname_array[row] = ('
         code = []
@@ -592,82 +630,103 @@ else:
             elif column_description[0] == 'ints':    code.append(' int(qname['+str(idx)+'])-'+str(column_description[1])  )
             elif column_description[0] == 'strings': code.append(' qname['+str(idx)+']'                                   )
         encoder += ','.join(code) + ' )'
+        exec(encoder) # dirty but it works well.
 
-        exec(encoder)
 
-        beforeLength = len(qname_array)
-        qname_array,qname_key = numpy.unique(qname_array, return_inverse=True)
-        if   len(qname_array) <= 256:                  qname_key_dtype = 'uint8'; qname_key = qname_key.astype(qname_key_dtype)
-        elif len(qname_array) <= 65536:                qname_key_dtype = 'uint16'; qname_key = qname_key.astype(qname_key_dtype)
-        elif len(qname_array) <= 4294967296:           qname_key_dtype = 'uint32'; qname_key = qname_key.astype(qname_key_dtype)
-        elif len(qname_array) <= 18446744073709551616: qname_key_dtype = 'uint64'; qname_key = qname_key.astype(qname_key_dtype)
-        if len(qname_array) != beforeLength:
-            if len(qname_array)*2 != beforeLength:
-                print 'INFO: Of the',beforeLength,'reads in the file,',beforeLength-len(qname_array),'contained duplicated read names/headers/QNAMEs.'
-                print '      What is unusual is that this number is not half the file (which might make sense for paired-end sequencing).'
-                print '      Thus, there may be a mistake in your QNAME formatting, however, it is not my place to judge - encoding will be totally uneffected.'
-            else: 
-                print 'INFO: This file looks like it contains properly-formatted paired end data.'
+        if args.test:
+            write_out(qname_array,'QNAME.raw',0) # The raw array with the smallest dtype
+            temp_array = numpy.asarray(qname_array,','.join([max_dtype]*columns)) # Now all columns have the dtype to the largest. Required for rotation.
+            temp_array.dtype = max_dtype
+            temp_array.shape = len(qname_array),len(qname_array[0])
+            write_out(numpy.rot90(temp_array,1),'QNAME.raw.rotate1',1)
+            write_out(numpy.rot90(temp_array,2),'QNAME.raw.rotate2',2)
+            write_out(numpy.rot90(temp_array,3),'QNAME.raw.rotate3',3)
+            del temp_array
+
+        if 'QNAME' in args.raw and not args.test:
+            if 'QNAME' in rotations:
+                qname_array = numpy.asarray(qname_array,','.join([max_dtype]*columns)) # Now all columns have the dtype of the largest column. Required for rotation.
+                qname_array.dtype = max_dtype
+                qname_array.shape = columns,rows
+                write_out(numpy.rot90(qname_array,rotations['QNAME']),'QNAME.raw',rotations['QNAME'])
+            else:
+                write_out(qname_array,'QNAME.raw',0)
         else:
-            print 'INFO: This file looks like it contains single-end sequencing data.'
-            print '      If that is NOT the case, then there may be a mistake in your QNAME formatting. Otherwise everything is fine :)'
-
-        write_out(qname_key,'QNAME.key'); del qname_key
-        rows = len(qname_array)
-        columns = len(qname_array.dtype)
-        qname_array = numpy.asarray(qname_array,','.join([max_dtype]*columns))
-        qname_array.dtype = max_dtype
-        qname_array.shape = (rows,columns)
-        write_out(numpy.rot90(qname_array),'QNAME'); del qname_array
+            beforeLength = len(qname_array)
+            qname_array,qname_key = numpy.unique(qname_array, return_inverse=True)
+            if   len(qname_array) <= 256:                  qname_key_dtype = 'uint8';  qname_key = qname_key.astype(qname_key_dtype)
+            elif len(qname_array) <= 65536:                qname_key_dtype = 'uint16'; qname_key = qname_key.astype(qname_key_dtype)
+            elif len(qname_array) <= 4294967296:           qname_key_dtype = 'uint32'; qname_key = qname_key.astype(qname_key_dtype)
+            elif len(qname_array) <= 18446744073709551616: qname_key_dtype = 'uint64'; qname_key = qname_key.astype(qname_key_dtype)
+            if len(qname_array) != beforeLength:
+                if len(qname_array)*2 != beforeLength:
+                    print 'INFO: Of the',beforeLength,'reads in the file,',beforeLength-len(qname_array),'contained duplicated read names/headers/QNAMEs.'
+                    print '      What is unusual is that this number is not half the file (which might make sense for paired-end sequencing).'
+                    print '      Thus, there may be a mistake in your QNAME formatting, however, it is not my place to judge - encoding will be totally uneffected.'
+                else: 
+                    print 'INFO: This file looks like it contains properly-formatted paired end data.'
+            else:
+                print 'INFO: This file looks like it contains single-end sequencing data.'
+                print '      If that is NOT the case, then there may be a mistake in your QNAME formatting. Otherwise everything is fine :)'
+            write_out(qname_key,'QNAME.key',0); del qname_key
+            if args.test:
+                write_out(qname_array,'QNAME',0) # This array will have the smallest dtype for each column possible
+                qname_array = numpy.asarray(qname_array,','.join([max_dtype]*columns)) # Now all columns have the dtype of the largest column. Required for rotation.
+                qname_array.dtype = max_dtype
+                qname_array.shape = columns,rows
+                write_out(numpy.rot90(qname_array,1),'QNAME.rotate1',1)
+                write_out(numpy.rot90(qname_array,2),'QNAME.rotate2',2)
+                write_out(numpy.rot90(qname_array,3),'QNAME.rotate3',3)
+            else:
+                if 'QNAME' in rotations:
+                    qname_array = numpy.asarray(qname_array,','.join([max_dtype]*columns)) # Now all columns have the dtype to the largest. Required for rotation.
+                    qname_array.dtype = max_dtype
+                    qname_array.shape = columns,rows
+                    write_out(numpy.rot90(qname_array,rotations['QNAME']),'QNAME',rotations['QNAME'])
+                else:
+                    write_out(qname_array,'QNAME',0)
+        del qname_array
         print 'Encoded QNAMEs written to disk!',status.split_time()
 
         if args.reorder:
             print 'Bonus Step: Reordering reads to optimize compression.'
             master = numpy.stack([ read_in('DNA.key'), read_in('QNAME.key'), read_in('QUAL.key') ], axis=1)
-            write_out(master,'master.raw.key')
-            write_out(numpy.rot90(master),'master.raw.rot.key')
             master = master[master[:,2].argsort(kind='quicksort')]
             master = master[master[:,1].argsort(kind='mergesort')]
             master = master[master[:,0].argsort(kind='mergesort')]
-            write_out(numpy.rot90(master),'master.key')
+            write_out(numpy.rot90(master),'master.key',1)
 
-    decoder_ring = {
-        'base_distribution':        base_graph,
-        'qual_distribution':        qual_graph,
-        'prefix':                   prefix,
-        'suffix':                   suffix,
-        'separators':               separators,
-        'bases':                    dna_bases,
-        'qualities':                quals,
-        'variable_read_lengths':    variable_read_lengths,
-        'bits_per_base':            bits_per_base,
-        'bits_per_quality':         bits_per_quality,
-        'N_qual':                   N_qual,
-        'dna_max':                  dna_max,
-        'columnType':               columnType
-    }
+        decoder_ring = {
+            'base_distribution':        base_graph,
+            'qual_distribution':        qual_graph,
+            'prefix':                   prefix,
+            'suffix':                   suffix,
+            'separators':               separators,
+            'bases':                    dna_bases,
+            'qualities':                quals,
+            'variable_read_lengths':    variable_read_lengths,
+            'bits_per_base':            bits_per_base,
+            'bits_per_quality':         bits_per_quality,
+            'N_qual':                   N_qual,
+            'dna_max':                  dna_max,
+            'columnType':               columnType
+        }
 
-    print 'Writing config to disk...',
-    path = os.path.join(temp_directory,'config.json')
-    with open(path,'wb') as f:
-        f.write(json.dumps(decoder_ring,indent=4))
-    print 'success!'
+        print 'Writing config to disk...',
+        path = os.path.join(temp_directory,'config.json')
+        with open(path,'wb') as f:
+            f.write(json.dumps(decoder_ring,indent=4))
+        print 'success!'
 
-    try:
-        with tarfile.open(os.path.join(temp_directory,'temp.uq'), mode='w') as temp_out:
-            temp_out.add(os.path.join(temp_directory,'DNA'))
-            temp_out.add(os.path.join(temp_directory,'DNA.key'))
-            temp_out.add(os.path.join(temp_directory,'QUAL.not')) ### finalize.
-            temp_out.add(os.path.join(temp_directory,'QUAL.key'))
-            temp_out.add(os.path.join(temp_directory,'QNAME'))
-            temp_out.add(os.path.join(temp_directory,'QNAME.key'))
-        os.rename(os.path.join(temp_directory,'temp.uq'), args.output)
-        for f in os.listdir(temp_directory): os.remove(f)
-
-    except Exception as e:
-        print 'ERROR: There was an error taking the encoded data and putting it all in a single tar file:'
-        print '      ',e
-        print '       You might be able to still do it manually. Take a look inside',temp_directory
+        try:
+            with tarfile.open(os.path.join(temp_directory,'temp.uq'), mode='w') as temp_out:
+                for f in os.listdir(temp_directory): temp_out.add(os.path.join(temp_directory,f),arcname='.')
+            os.rename(os.path.join(temp_directory,'temp.uq'), args.output)
+            for f in os.listdir(temp_directory): os.remove(os.path.join(temp_directory,f))
+        except Exception as e:
+            print 'ERROR: There was an error taking the encoded data and putting it all in a single tar file:'
+            print '      ',e
+            print '       You might be able to still do it manually. Take a look inside',temp_directory
 
 if not args.peek and (args.decode or args.paranoid):
     if args.decode: decode_input = args.input
@@ -676,12 +735,12 @@ if not args.peek and (args.decode or args.paranoid):
     with open(os.path.join(decode_input,'config.json'),'rb') as f:
         decoder_ring = json.loads(f.read())
 
-    DNA = numpy.load(os.path.join(decode_input,'DNA.actual.npy'))
-    QUAL = numpy.load(os.path.join(decode_input,'QUAL.actual.npy'))
-    QNAME = numpy.load(os.path.join(decode_input,'QNAME.actual.npy')) # Could make these memory-mapped files? Save some RAM.
-    DNA_KEY = numpy.load(os.path.join(decode_input,'DNA.key.npy'))
-    QUAL_KEY = numpy.load(os.path.join(decode_input,'QUAL.key.npy'))
-    QNAME_KEY = numpy.load(os.path.join(decode_input,'QNAME.key.npy'))
+    DNA = numpy.load(os.path.join(decode_input,'DNA'))
+    QUAL = numpy.load(os.path.join(decode_input,'QUAL'))
+    QNAME = numpy.load(os.path.join(decode_input,'QNAME')) # Could make these memory-mapped files? Save some RAM.
+    DNA_KEY = numpy.load(os.path.join(decode_input,'DNA.key'))
+    QUAL_KEY = numpy.load(os.path.join(decode_input,'QUAL.key'))
+    QNAME_KEY = numpy.load(os.path.join(decode_input,'QNAME.key'))
 
     bases = decoder_ring['bases']
     N_qual = decoder_ring['N_qual']
@@ -753,14 +812,11 @@ def convert_qname(numpy_array,prefix,suffix,columnType):
 
 '''
 Developer To Dos / Notes:
-
-1) Settle on what will and will not be used as output. Presumably no raw, only keys, and even with master/resort the keys are stored individually.
-
 2) Variable-length encoded into the qual scores.
 
-3) get --order working
+4) Test with variable length data (and other tools...)
 
-4) write up how you would get the other --things working.
+4.5) get --order working
 
 5) To reduce the final output filesize further, i would like to write all reads containing Ns to a separate file, then once the unique/sorted
    list is created (for DNA/QUAL), try replacing the N with any other letter to get a fragment that is already in the unique dataset. Since the list
