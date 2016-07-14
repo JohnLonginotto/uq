@@ -129,11 +129,13 @@ if args.qname or args.qual or args.dna or args.paranoid or args.delete: print 'N
 
 if args.decode:
     if os.path.isfile(args.input):
-        if not tarfile.is_tarfile(args.input): print 'ERROR: Sorry, the path you have provided as input is not a valid tar file, and therefore cannot be a .uq file!'; exit()
+        if not tarfile.is_tarfile(args.input): print 'ERROR: Sorry, the path you have provided as input is a file, but not a tar file, and therefore cannot be a .uq file!'; exit()
+        else: is_tar = True
     elif os.path.isdir(args.input):
-        if not tarfile.is_tarfile(os.path.join(args.input,'config.json')):
+        if not os.path.isfile(os.path.join(args.input,'config.json')):
             print 'ERROR: Sorry, the DIRECTORY you have used as a decoding input does not include the config.json file.'; exit()
-    else: print 'ERROR: Sorry, the path you have provided as input does not exist - please check it and try again :)'; exit() 
+        else: is_tar = False
+    else: print 'ERROR: Sorry, the path you have provided for input does not exist - please check it and try again :)'; exit() 
 else:
     if not os.path.isfile(args.input):  print 'ERROR: Sorry, the input path you have specified is not a file path. Please check it and try again! :)'; exit()
     temp_directory = args.temp if args.temp else tempfile.mkdtemp()
@@ -615,9 +617,33 @@ else:
         qname_dtype = ','.join(qname_dtype)
     else: print 'Step 3 of 4: Skipped as there are no delimiters common to all QNAMEs'
 
+    decoder_ring = {
+        'base_distribution':        base_graph,
+        'qual_distribution':        qual_graph,
+        'prefix':                   prefix,
+        'suffix':                   suffix,
+        'separators':               separators,
+        'bases':                    dna_bases,
+        'qualities':                quals,
+        'variable_read_lengths':    variable_read_lengths,
+        'bits_per_base':            bits_per_base,
+        'bits_per_quality':         bits_per_quality,
+        'N_qual':                   N_qual,
+        'dna_max':                  dna_max,
+        'columnType':               columnType
+    }
 
-    if not args.peek:
-        print ''
+    if args.peek:
+        print 'The config.json would look like:'
+        print json.dumps(decoder_ring,indent=4)
+
+    else:
+        print 'Writing config to disk...',
+        path = os.path.join(temp_directory,'config.json')
+        with open(path,'wb') as f:
+            f.write(json.dumps(decoder_ring,indent=4))
+        print 'success!\n'
+
         status.message = 'Step 4 of 4: Encoding QNAME with optimized settings.'
         qname_array = numpy.zeros(status.total,numpy.dtype(qname_dtype))
         rows = len(qname_array)
@@ -696,28 +722,6 @@ else:
             master = master[master[:,0].argsort(kind='mergesort')]
             write_out(numpy.rot90(master),'master.key',1)
 
-        decoder_ring = {
-            'base_distribution':        base_graph,
-            'qual_distribution':        qual_graph,
-            'prefix':                   prefix,
-            'suffix':                   suffix,
-            'separators':               separators,
-            'bases':                    dna_bases,
-            'qualities':                quals,
-            'variable_read_lengths':    variable_read_lengths,
-            'bits_per_base':            bits_per_base,
-            'bits_per_quality':         bits_per_quality,
-            'N_qual':                   N_qual,
-            'dna_max':                  dna_max,
-            'columnType':               columnType
-        }
-
-        print 'Writing config to disk...',
-        path = os.path.join(temp_directory,'config.json')
-        with open(path,'wb') as f:
-            f.write(json.dumps(decoder_ring,indent=4))
-        print 'success!'
-
         try:
             with tarfile.open(os.path.join(temp_directory,'temp.uq'), mode='w') as temp_out:
                 for f in os.listdir(temp_directory): temp_out.add(os.path.join(temp_directory,f),arcname='.')
@@ -728,20 +732,34 @@ else:
             print '      ',e
             print '       You might be able to still do it manually. Take a look inside',temp_directory
 
-if not args.peek and (args.decode or args.paranoid):
-    if args.decode: decode_input = args.input
-    else:           decode_input = args.output
+if args.decode or args.paranoid:
+    if args.decode:
+        decode_input = tarfile.open(args.input) if is_tar else args.input    # for decode
+    else:
+        decode_input = tarfile.open(args.output) if is_tar else args.output    # for paranoid
 
-    with open(os.path.join(decode_input,'config.json'),'rb') as f:
-        decoder_ring = json.loads(f.read())
+    # Define a few very basic functions:
+    def check_dir(decode_input,file_name): return os.path.isfile(os.path.join(decode_input,file_name))
+    def check_tar(decode_input,file_name): return file_name in decode_input.getnames()
+    def load_tar(decode_input,file_name):
+        data = numpy.load(decode_input.extractfile(file_name))
+        if data['rotations'] == 0: return data['table']
+        else:                      return numpy.rot90(data['table'],-data['rotations']) # undo the rotations. Could undo a diff here too.
+    def load_dir(decode_input,file_name):
+        data = numpy.load(os.path.join(decode_input,file_name))
+        if data['rotations'] == 0: return data['table']
+        else:                      return numpy.rot90(data['table'],-data['rotations']) # undo the rotations. Could undo a diff here too.
+    check_file = check_tar if is_tar else check_dir
+    load_file = load_tar if is_tar else load_dir
 
-    DNA = numpy.load(os.path.join(decode_input,'DNA'))
-    QUAL = numpy.load(os.path.join(decode_input,'QUAL'))
-    QNAME = numpy.load(os.path.join(decode_input,'QNAME')) # Could make these memory-mapped files? Save some RAM.
-    DNA_KEY = numpy.load(os.path.join(decode_input,'DNA.key'))
-    QUAL_KEY = numpy.load(os.path.join(decode_input,'QUAL.key'))
-    QNAME_KEY = numpy.load(os.path.join(decode_input,'QNAME.key'))
-
+    # Check for a config file, and load it. We reassign things in the dict for speed reasons.
+    if check_file(decode_input,'config.json'):
+        if is_tar:
+            decoder_ring = json.loads(decode_input.extractfile('config.json'))
+        else:
+            with open(os.path.join(decode_input,'config.json'),'rb') as f: decoder_ring = json.loads(f.read())
+    else:
+        print 'ERROR: No config.json file was found in your input path! I cant decode data without it!'; exit()
     bases = decoder_ring['bases']
     N_qual = decoder_ring['N_qual']
     prefix = decoder_ring['prefix']
@@ -756,8 +774,13 @@ if not args.peek and (args.decode or args.paranoid):
     total_qual_bits = dna_max*bits_per_quality
     qual_N = dict( (v,k) for k,v in N_qual.iteritems()) # reverse key/val pairs
 
-    # This function takes the numpy array, sums all the uint8 columns together as if it was a single uintX column, then with the  
-    # information on the number of bits per base/quality, returns another array where each element is the encoded value for a base.
+    # DNA/QUAL decoder:
+    # This function takes either a DNA or QUAL array, and for each row sums all the uint8 columns together in such a way that 
+    # its as if we had stored a single number in uintX - where X is 8*[the number of columns]. There is no uint152, but with this
+    # there can be using 19 uint8 columns (for example). Then, on that single number, we can bit shift around to get out values. 
+    # Note that much like the encoder, this would be waaaaaay faster if it was written in a language that could read/write/bit 
+    # shift arbitary bytes of binary without this dumb python "trick". Maybe numpy's void type can do it? Who knows.
+    # For each row, it returns a list of numbers, where each number is the encoded base/quality score.
     def split_bits(numpy_array,total_bits,bits_per_x,decoder):
         bitmask = int('1'*bits_per_x,2)
         static = range(total_bits-bits_per_x,-bits_per_x,-bits_per_x)
@@ -765,6 +788,10 @@ if not args.peek and (args.decode or args.paranoid):
             the_number = sum([int(y) << (8*x) for x,y in enumerate(reversed(row))])
             yield [(the_number >> x) & bitmask for x in static]
 
+    # QNAME decoder:
+    # This function is a little special, because unlike the above 'static' function, this function, for speed reasons,
+    # will be compiled at runtime using exec(). You give it your QNAME prefix/suffix/coding table, and the qname numpy array,
+    # and it returns the decoded QNAMEs.
     convert_qname_fuction = '''
 def convert_qname(numpy_array,prefix,suffix,columnType):
     for row in numpy_array:
@@ -781,49 +808,64 @@ def convert_qname(numpy_array,prefix,suffix,columnType):
     convert_qname_fuction += '"'+suffix+'"'
     exec(convert_qname_fuction) # This is much more efficient than having to parse columnType for every QNAME entry. We compile a decoder once and reuse it.
 
-    gen = itertools.izip(split_bits(DNA[DNA_KEY],total_dna_bits,bits_per_base,bases),split_bits(QUAL[QUAL_KEY],total_qual_bits,bits_per_quality,qualities),convert_qname(QNAME[QNAME_KEY],prefix,suffix,columnType))
-    if len(N_qual) != 0:
-        for dna,qual,qname in gen:
-            # Here we decode the encoded value into the base/quality value, making sure to convert the N_qual values too.
-            for idx,q in enumerate(qual):
-                qual[idx] = qualities[q]
-                if q in qual_N: dna[idx] = qual_N[q]
-                else:           dna[idx] = bases[dna[idx]]
 
-            print qname
-            print ''.join(dna)
-            print '+'
-            print ''.join(qual)
-            exit()
 
-    else:
-        # We can decode everything a little bit faster if theres nothing in N_qual/qual_N to convert.
-        for dna,qual,qname in gen:
-            for idx,q in enumerate(qual):
-                qual[idx] = qualities[q]
-                dna[idx] = bases[dna[idx]]
-            print qname
-            print ''.join(dna)
-            print '+'
-            print ''.join(qual)
+
+    if check_file(decode_input,'DNA.raw'):                                      DNA = load_file(decode_input,'DNA.raw')
+    elif check_file(decode_input,'DNA') and check_file(decode_input,'DNA.key'): DNA = load_file(decode_input,'DNA')[load_file(decode_input,'DNA.key')]
+
+    if check_file(decode_input,'QUAL.raw'):                                       QUAL = load_file(decode_input,'QUAL.raw')
+    elif check_file(decode_input,'QUAL') and check_file(decode_input,'QUAL.key'): QUAL = load_file(decode_input,'QUAL')[load_file(decode_input,'QUAL.key')]
+
+    if check_file(decode_input,'QNAME.raw'):                                        QNAME = convert_qname(load_file(decode_input,'QNAME.raw')                                 ,prefix,suffix,columnType)
+    elif check_file(decode_input,'QNAME') and check_file(decode_input,'QNAME.key'): QNAME = convert_qname(load_file(decode_input,'QNAME')[load_file(decode_input,'QNAME.key')],prefix,suffix,columnType)
+    elif check_file(decode_input,'QNAME.key'):                                      QNAME = load_file(decode_input,'QNAME.key') # Pairs still mated
+    else:                                                                           QNAME = xrange(1,len(DNA)+1) # Every read is unique.
+
+    try:
+        gen = itertools.izip(split_bits(DNA,total_dna_bits,bits_per_base,bases),split_bits(QUAL,total_qual_bits,bits_per_quality,qualities),QNAME)
+        if len(N_qual) != 0:
+            for dna,qual,qname in gen:
+                # Here we decode the encoded value into the base/quality value, making sure to convert the N_qual values too.
+                for idx,q in enumerate(qual):
+                    qual[idx] = qualities[q]
+                    if q in qual_N: dna[idx] = qual_N[q]
+                    else:           dna[idx] = bases[dna[idx]]
+
+                print qname
+                print ''.join(dna)
+                print '+'            # I'm seeing the qname here in a lot of publicly avalible files instead of +. Perhaps could add a flag to config.json?
+                print ''.join(qual)
+
+        else:
+            # We can decode everything a little bit faster if theres nothing in N_qual/qual_N to convert.
+            for dna,qual,qname in gen:
+                for idx,q in enumerate(qual):
+                    qual[idx] = qualities[q]
+                    dna[idx] = bases[dna[idx]]
+                print qname
+                print ''.join(dna)
+                print '+'
+                print ''.join(qual)
+    except IOError:
+        pass
 
 
 
 
 '''
 Developer To Dos / Notes:
-2) Variable-length encoded into the qual scores.
 
-4) Test with variable length data (and other tools...)
+1) Variable-length encoded into the qual scores.
 
-4.5) get --order working
+2) get --order working
 
-5) To reduce the final output filesize further, i would like to write all reads containing Ns to a separate file, then once the unique/sorted
+3) To reduce the final output filesize further, i would like to write all reads containing Ns to a separate file, then once the unique/sorted
    list is created (for DNA/QUAL), try replacing the N with any other letter to get a fragment that is already in the unique dataset. Since the list
    is sorted, we can use a binary intersect and figure that out near-instantaniously, so it's reasonable. If no match is found, replace Ns with the most
    common base, which is what is currently done. This is part of the LOSSLESS part of the program, so really it would benefit all.
 
-6) The analysing/encoding of the data is 3-10x faster in pypy than regular python, however,
+4) The analysing/encoding of the data is 3-10x faster in pypy than regular python, however,
    pypy does not support numpy like CPython does. Specifically the numpy.unique and numpy.fromfile / numpy.load
    functions are not implimented fully. numpy.save is, however.
    Having said that, ideally we would want to drop the numpy dependancy all together. Although numpy is a huge project
@@ -832,7 +874,7 @@ Developer To Dos / Notes:
    If the user uses pypy, this script will encode/decode much faster - and of course can still be decoded by standard python.
    But really, if people like the project, would be re-written in C, parallelized, etc. Then again. C rarely compiles first time.
 
-7) Could ACGTrie all this DNA, then the only change would be the idx points to the end row in the trie (and working backwards gets you the DNA)
+5) Could ACGTrie all this DNA, then the only change would be the idx points to the end row in the trie (and working backwards gets you the DNA)
    Same could work for the QUAL too.
 
 '''
