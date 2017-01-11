@@ -7,6 +7,7 @@ import json
 import time
 import numpy
 import struct
+import bisect
 import tarfile
 import tempfile
 import argparse
@@ -29,19 +30,19 @@ program does not have any concept of DNA, phred scores, CASAVA naming convention
 "interpretation" of the data - no expectations of what your data "should" look like - thus a lot of the issues 
 which could lead to mistakes or loss of information when compressing are avoided.
 
-On the topic of safety, microq.py is one of the only FASTQ encoding/compression programs that reads the whole
+On the topic of safety, uQ.py is one of the only FASTQ encoding/compression programs that reads the whole
 file first before deciding on how to encode the data optimally/safely. This makes it a little slower than
-other tools, but argubly much safer.
+other tools, but arguably much safer.
 
 But it's important to remember that this isn't just about storing ASCII bytes in the smallest number of bits. 
 It's about storing those bits in such a way that compressors can very efficiently compress the data - whatever 
-compressor you choose to use. I use the very effient lpac9 algorithum for my own data, although other algorithums
+compressor you choose to use. I use the very effient lpac9 algorithm for my own data, although other algorithms
 from the same fantastic developer (Matt Mahoney) can get the files even smaller if you have more cpu cycles to spare.
 For distribution however, I would use something more prevelent like gzip or 7zip, as that's what your users will
 already have installed.
 
 The decoding of .uq files to .fastq can also be done with this tool, and this tool is included in the .uq file itself,
-which is really just a tar file holding some binary blobs. To decode the data, run this tool will --decode, and 
+which is really just a tar file holding some binary blobs. To decode the data, run this tool with --decode, and 
 point the --input to either the .uq tar file, or the untarred .uq directory (should contain a config.json).
 
 Dependancies for encoding/decoding are python 2 with numpy, and unix tool "wc". If you would like me to remove the 
@@ -179,8 +180,8 @@ else:
         # QNAME
         prefix = line1
         suffix = line1[:]
-        separators = set()
-        for sep in set(line1): separators.add(( sep, line1.count(sep) ))
+        separators = collections.defaultdict(int)
+        not_separators = set()
 
         # DNA
         dna_bases = set(line2)
@@ -222,13 +223,22 @@ else:
             # QNAME Checks:
             if not qname.startswith(prefix):
                 for idx,character in enumerate(prefix):
-                    if character != qname[idx]: prefix = prefix[:idx]; break
+                    if character != qname[idx]:
+                        for sep in prefix[idx:]:
+                            if sep not in not_separators: separators[sep] += 1
+                        prefix = prefix[:idx]
+                        break
+
             if not qname.endswith(suffix):
                 for idx,character in enumerate(suffix[::-1]):
                     if character != qname[-1-idx]:
-                        suffix = suffix[-idx:]; break
-            for sep,sepcount in separators.copy():
-                if qname.count(sep) != sepcount: separators.remove( (sep,sepcount) )
+                        suffix = suffix[-idx:]
+                        break
+
+            for sep in separators.copy():
+                if qname[len(prefix):].count(sep) != separators[sep]:
+                    del separators[sep]
+                    not_separators.add(sep)
 
             # Get DNA max/min:
             if dna_max < len(dna): dna_max = len(dna)
@@ -242,26 +252,19 @@ else:
                     static_qualities[base] = collections.defaultdict(int)
                     static_qualities[base][qual] += 1
 
-    # Tidy up separator/prefix/suffix results:
-    separators = list(separators)
-    for idx,sepdata in enumerate(separators):
-        sep,sepcount = sepdata
-        if prefix.count(sep) != 0: separators[idx] = ( sep, sepcount - prefix.count(sep) )
-        if suffix.count(sep) != 0: separators[idx] = ( sep, sepcount - suffix.count(sep) )
-    for idx in range(len(separators)-1,-1,-1): # iterate the list backwards so we can delete things without upsetting the order.
-        if separators[idx][1] == 0: separators.pop(idx)
+    # Tidy up separator suffix results:
+    for sep in separators.copy():
+        if suffix.count(sep) != 0:
+            separators[sep] -= suffix.count(sep)
+            if separators[sep] == 0: del separators[sep]
 
-    def order_seps(string,separators):
-        sep_list = []
-        for sep in separators:
-            last = 0
-            for _ in range(sep[1]):
-                sep_list.append( (qname.index(sep[0],last),sep[0]) )
-                last = qname.index(sep[0],last)+1
-        return ''.join([y for x,y in sorted(sep_list)])
+    def order_seps(qname,prefix,suffix,separators):
+        unordered_seps = ''.join(separators) # concatinates separators
+        ordered_seps = re.findall('([' + unordered_seps + ']+)',qname[len(prefix):-1-len(suffix)])
+        return ''.join(ordered_seps)
 
-    if order_seps(qname,separators) == order_seps(line1,separators):
-        separators = order_seps(qname,separators)
+    if order_seps(qname,prefix,suffix,separators) == order_seps(line1,prefix,suffix,separators):
+        separators = order_seps(qname,prefix,suffix,separators)
     else:
         print "ERROR: Sorry, the separators used in this file's QNAME/headers are so unusual/improbable that"
         print "       I didn't think it was worth the time to write the code on how to deal with it, only identify it."
@@ -288,7 +291,7 @@ else:
     print 'QNAME Analysis:'
     if len(prefix):     print '    - all QNAMEs prefixed with:',prefix
     if len(suffix):     print '    - all QNAMEs suffixed with:',suffix
-    if len(separators): print '    - QNAME field separators:'  ,separators
+    if len(separators): print '    - QNAME field separators:'  ,separators,'(',len(separators),'symbols )'
     print ''
     print 'DNA Analysis:'
     print '    - DNA sequences contained the following characters:',' '.join(sorted(dna_bases)),'(' + str(len(dna_bases)) + ' in total)'
@@ -426,6 +429,7 @@ else:
             columns = len(ar[0])
             ar.dtype = 'uint8'
             ar.shape = (length,columns)
+
         def std_to_struct(ar):
             length,columns = ar.shape
             ar.dtype = ','.join(columns*['uint8'])
@@ -433,21 +437,22 @@ else:
 
         def write_out(table,filename,rotations):
             with open(os.path.join(temp_directory,filename),'wb') as out_file:
-                numpy.savez(out_file,table=table,rotations=rotations)
+                numpy.savez(out_file,table=numpy.rot90(table,rotations),rotations=rotations)
+
         def read_in(filename): return numpy.load(os.path.join(temp_directory,filename))
 
         write_out(dna_array,'DNA.raw',0); del dna_array # Free up some RAM for the impending sort. Will process it later.
         if args.test:
             struct_to_std(qual_array)
-            write_out(numpy.rot90(qual_array,0),'QUAL.raw',0)
-            write_out(numpy.rot90(qual_array,1),'QUAL.raw.rotate1',1)
-            write_out(numpy.rot90(qual_array,2),'QUAL.raw.rotate2',2)
-            write_out(numpy.rot90(qual_array,3),'QUAL.raw.rotate3',3)
+            write_out(qual_array,'QUAL.raw',0)
+            write_out(qual_array,'QUAL.raw.rotate1',1)
+            write_out(qual_array,'QUAL.raw.rotate2',2)
+            write_out(qual_array,'QUAL.raw.rotate3',3)
             std_to_struct(qual_array)
 
-        if 'QUAL' in args.raw and not args.test:
+        if 'QUAL' in args.raw:
             struct_to_std(qual_array)
-            write_out(numpy.rot90(qual_array,rotations['QUAL']),'QUAL.raw',rotations['QUAL'])
+            write_out(qual_array,'QUAL.raw',rotations['QUAL'])
             del qual_array
         else:
             qual_array,qual_key = numpy.unique(qual_array, return_inverse=True)
@@ -458,12 +463,12 @@ else:
             write_out(qual_key,'QUAL.key',0); del qual_key
             struct_to_std(qual_array)
             if args.test:
-                write_out(numpy.rot90(qual_array,0),'QUAL',0)
-                write_out(numpy.rot90(qual_array,1),'QUAL.rotate1',1)
-                write_out(numpy.rot90(qual_array,2),'QUAL.rotate2',2)
-                write_out(numpy.rot90(qual_array,3),'QUAL.rotate3',3)
+                write_out(qual_array,'QUAL',0)
+                write_out(qual_array,'QUAL.rotate1',1)
+                write_out(qual_array,'QUAL.rotate2',2)
+                write_out(qual_array,'QUAL.rotate3',3)
             else:
-                write_out(numpy.rot90(qual_array,rotations['QUAL']),'QUAL',rotations['QUAL'])
+                write_out(qual_array,'QUAL',rotations['QUAL'])
             del qual_array
 
         print 'Finished sorting qualities',status.split_time(),'sorting DNA...'
@@ -472,15 +477,15 @@ else:
         os.remove(os.path.join(temp_directory,'DNA.raw'))  # I apprechiate this is dumb if we're going to write it out again, but need to allow for rotation.
         if args.test:
             struct_to_std(dna_array)
-            write_out(numpy.rot90(dna_array,0),'DNA.raw',0)
-            write_out(numpy.rot90(dna_array,1),'DNA.raw.rotate1',1)
-            write_out(numpy.rot90(dna_array,2),'DNA.raw.rotate2',2)
-            write_out(numpy.rot90(dna_array,3),'DNA.raw.rotate3',3)
+            write_out(dna_array,'DNA.raw',0)
+            write_out(dna_array,'DNA.raw.rotate1',1)
+            write_out(dna_array,'DNA.raw.rotate2',2)
+            write_out(dna_array,'DNA.raw.rotate3',3)
             std_to_struct(dna_array)
 
         if 'DNA' in args.raw and not args.test:
             struct_to_std(dna_array)
-            write_out(numpy.rot90(dna_array,rotations['DNA']),'DNA.raw',rotations['DNA'])
+            write_out(dna_array,'DNA.raw',rotations['DNA'])
             del dna_array
         else:
             dna_array,dna_key = numpy.unique(dna_array, return_inverse=True)
@@ -491,18 +496,14 @@ else:
             write_out(dna_key,'DNA.key',0); del dna_key
             struct_to_std(dna_array)
             if args.test:
-                write_out(numpy.rot90(dna_array,0),'DNA',0)
-                write_out(numpy.rot90(dna_array,1),'DNA.rotate1',1)
-                write_out(numpy.rot90(dna_array,2),'DNA.rotate2',2)
-                write_out(numpy.rot90(dna_array,3),'DNA.rotate3',3)
+                write_out(dna_array,'DNA',0)
+                write_out(dna_array,'DNA.rotate1',1)
+                write_out(dna_array,'DNA.rotate2',2)
+                write_out(dna_array,'DNA.rotate3',3)
             else:
-                write_out(numpy.rot90(dna_array,rotations['DNA']),'DNA',rotations['DNA'])
+                write_out(dna_array,'DNA',rotations['DNA'])
             del dna_array
             print 'Encoded DNA and Qualities written to disk!\n',status.split_time()
-
-
-
-
 
     status.message = 'Step 3 of 4: Analysing QNAME data between delimiters.'
     if len(separators):
@@ -520,109 +521,102 @@ else:
                         next(f)
                     except StopIteration: break
                     status.update()
-
         cols = False
         target = 10000
         fallback = False
-        columnType = []
+        columns = []
         '''
-        columnType explination:
-        Columns start off as 'coded' which means a tuple of all known values will be used to assign "things" to numbers, just like the DNA/QUAL.
-        Columns may get bumped down to 'ints' or 'strings' type if this tuple gets very large - specifically if the size of the tuple contains 
+        columns explination:
+        All columns start off as 'coded' which means a dictionary/mapping of all known values will be used to assign values to numbers, just like the DNA/QUAL.
+        Columns may get bumped down from mappings to 'integers' or 'strings' format if this mapping gets very large - specifically if the size of the mapping contains 
         more than 1000 items, and whatever that number above 1000 is, it is more than 1/10th of the number of sequences read so far.
-        Next down the type list is ints, which are always numbers. Then below that is strings. It's important to give ints the possibility of being
-        tuple-coded, rather than find a struct big enough to hold them as numbers, because very large numbers may appear rarely, and thus coding is better.
+        Next down the type list is integers, which are always numbers. Then below that is strings. It's important to give integers the possibility of being
+        mappings because very large numbers may appear rarely, and thus a mapping is much smaller.
         '''
+
+        def check_format(columns,entries_read):
+            for column in columns:
+                # This is where mappings get bumped down to integers or strings if they become too large (relatively).
+                if column['format'] == 'mapping':
+                    if len(column['map']) > entries_read/10:
+                        try:
+                            _ = map(int,column['map'])
+                            column['min'] = min(_)
+                            column['max'] = max(_)
+                            column['format'] = 'integers'
+                            del column['map']
+                            del _
+                        except ValueError:
+                            column['format'] = 'strings'
+                            column['longest'] = max(map(len,column['map']))
+                            del column['map']
+
         qnames = qname_reader(args.input,prefix,suffix)
-        for counter,qname in enumerate(qnames):
+        for entries_read,qname in enumerate(qnames):
             if len(qname) != cols:
                 if cols == False:
                     cols = len(qname)
-                    for _ in range(cols): columnType.append(['coded',set()])
+                    for col in range(cols): columns.append({ 'name':'QNAME_'+str(col+1), 'format':'mapping', 'map':set() })
                 else:
-                    print 'WARNING: I was unable to correctly guess the delimiters of the QNAME in this FASTA file.'
+                    print 'WARNING: I was unable to correctly guess the delimiters of the QNAME in this FASTQ file.'
                     print '         Will fall back to assuming there is no delimiting of data.'
                     fallback = True
                     break
+
             for idx,column in enumerate(qname):
-                if columnType[idx][0] == 'coded': columnType[idx][1].add(column)
-                elif columnType[idx][0] == 'ints':
+                # By default all unique items are put into a set, where every item of this set will later be encoded with a binary uint:
+                if columns[idx]['format'] == 'mapping': columns[idx]['map'].add(column)
+                # If that set becomes very large (relative to the qnames checked) and their all ints, we store then as u/ints directly.
+                # For now we'll just store the min and max values:
+                elif columns[idx]['format'] == 'integers':
                     try:
                         column = int(column)
-                        if column < columnType[idx][1]: columnType[idx][1] = column   # min
-                        elif column > columnType[idx][2]: columnType[idx][2] = column # max
+                        if   column < columns[idx]['min']: columns[idx]['min'] = column
+                        elif column > columns[idx]['max']: columns[idx]['max'] = column
+                    # But if they're not even numbers to begin with, tripping this error, we'll have to store them in strings (least efficient way).
                     except ValueError: 
-                        # Get bumped down to a string
-                        columnType[idx][0] = 'strings'
-                        columnType[idx][1] = len(str(columnType[idx][2]))
-                        del columnType[idx][2]
-                # To be here we have to be a string:
-                elif len(column) > columnType[idx][1]:
-                    columnType[idx][1] = len(column)
+                        # We just store the length of the longest string for now:
+                        columns[idx]['format'] = 'strings'
+                        columns[idx]['longest'] = len(str(columns[idx]['max'])) # The length of the string representation of the largest number.
+                        del columns[idx]['min']
+                        del columns[idx]['max']
+                elif columns[idx]['format'] == 'strings':
+                    if len(column) > columns[idx]['longest']: columns[idx]['longest'] = len(column)
 
-            if counter == target:
-                for column_description in columnType:
-                    if column_description[0] == 'coded':
-                        if len(column_description[1]) > target/10:
-                            try:
-                                column_description[1] = map(int,column_description[1])
-                                column_description[0] = 'ints'
-                                column_description.append(max(column_description[1]))
-                                column_description[1] = min(column_description[1])
-                            except ValueError:
-                                column_description[0] = 'strings'
-                                column_description[1] = max(map(len,yolo))
-                target *= 10
-
+            if entries_read == target:
+                check_format(columns,entries_read)
+                target *= 2
         if fallback:
             print 'I havent implimented this yet!'
             exit()
-        else:
-            # Check the last bit:
-            for column_description in columnType:
-                if column_description[0] == 'coded':
-                    if len(column_description[1]) > target/10:
-                        try:
-                            column_description[1] = map(int,column_description[1])
-                            column_description[0] = 'ints'
-                            column_description.append(max(column_description[1]))
-                            column_description[1] = min(column_description[1])
-                        except ValueError:
-                            column_description[0] = 'strings'
-                            column_description[1] = max(map(len,yolo))
+        else: check_format(columns,entries_read) # Check the last bit of data that hadn't made it through yet.
 
         print 'Optimal encoding method for delimited data in QNAME determined!',status.split_time()
 
-        qname_dtype = []
-        for idx,column_description in enumerate(columnType):
+        for column in columns:
             # Now we fiddle with things a bit:
-            if column_description[0] == 'coded':
-                i = len(column_description[1])
-                if   i <= 255:                  column_description.append('uint8')
-                elif i <= 65535:                column_description.append('uint16')
-                elif i <= 4294967295:           column_description.append('uint32')
-                elif i <= 18446744073709551615: column_description.append('uint64')
-                column_description[1] = tuple(sorted(column_description[1])) # sets have no order, so we tuple to fix things in place.
-            elif column_description[0] == 'ints':
-                i = column_description[2]-column_description[1] +1
-                if   i <= 255:                  column_description[2] = 'uint8'
-                elif i <= 65535:                column_description[2] = 'uint16'
-                elif i <= 4294967295:           column_description[2] = 'uint32'
-                elif i <= 18446744073709551615: column_description[2] = 'uint64'
-            elif column_description[0] == 'strings':
+            if column['format'] == 'mapping':
+                i = len(column['map'])
+                if   i <= 255:                  column['dtype'] = 'uint8'
+                elif i <= 65535:                column['dtype'] = 'uint16'
+                elif i <= 4294967295:           column['dtype'] = 'uint32'
+                elif i <= 18446744073709551615: column['dtype'] = 'uint64'
+                column['map'] = sorted(column['map']) # The sort allows us to bisect the map instead of doing hashtable work.
+            elif column['format'] == 'integers':
+                i = column['max']-column['min'] +1
+                if   i <= 255:                  column['dtype'] = 'uint8'
+                elif i <= 65535:                column['dtype'] = 'uint16'
+                elif i <= 4294967295:           column['dtype'] = 'uint32'
+                elif i <= 18446744073709551615: column['dtype'] = 'uint64'
+            elif column['format'] == 'strings':
                 print 'I havent implimented this yet'; exit()
-            print '    - Column',idx+1,'is type',column_description[0],'stored as',column_description[2]
-            qname_dtype.append(column_description[2])
-        max_dtype = 'uint' + str(max([ int(x[4:]) for x in qname_dtype])) # The largest dtype in all the QNAME columns.
-        qname_dtype = ','.join(qname_dtype)
+            print '    - Column',idx+1,'is type',column['format'],'stored as',column['dtype']
     else: print 'Step 3 of 4: Skipped as there are no delimiters common to all QNAMEs'
 
     decoder_ring = {
         'base_distribution':        base_graph,
         'qual_distribution':        qual_graph,
-        'prefix':                   prefix,
-        'suffix':                   suffix,
-        'separators':               separators,
+        'reads':                    status.total,
         'bases':                    dna_bases,
         'qualities':                quals,
         'variable_read_lengths':    variable_read_lengths,
@@ -630,10 +624,13 @@ else:
         'bits_per_quality':         bits_per_quality,
         'N_qual':                   N_qual,
         'dna_max':                  dna_max,
-        'columnType':               columnType
+        'QNAME_prefix':             prefix,
+        'QNAME_suffix':             suffix,
+        'QNAME_separators':         separators,
+        'QNAME_columns':            columns
     }
 
-    if args.peek:
+    if not args.peek:
         print 'The config.json would look like:'
         print json.dumps(decoder_ring,indent=4)
 
@@ -645,92 +642,81 @@ else:
         print 'success!\n'
 
         status.message = 'Step 4 of 4: Encoding QNAME with optimized settings.'
-        qname_array = numpy.zeros(status.total,numpy.dtype(qname_dtype))
-        rows = len(qname_array)
-        columns = len(qname_array.dtype)
-        qnames = qname_reader(args.input,prefix,suffix)
-        encoder = 'for row,qname in enumerate(qnames):\n    qname_array[row] = ('
-        code = []
-        for idx,column_description in enumerate(columnType):
-            if column_description[0] == 'coded':     code.append(' columnType['+str(idx)+'][1].index(qname['+str(idx)+'])')
-            elif column_description[0] == 'ints':    code.append(' int(qname['+str(idx)+'])-'+str(column_description[1])  )
-            elif column_description[0] == 'strings': code.append(' qname['+str(idx)+']'                                   )
-        encoder += ','.join(code) + ' )'
-        exec(encoder) # dirty but it works well.
+        columns_data = []
+        for column in columns: columns_data.append( numpy.zeros(decoder_ring['reads'],column['dtype']) )
+        for entries_read,qname in enumerate(qname_reader(args.input,prefix,suffix)):
+            for column_idx,column_data in enumerate(qname):
+                if columns[column_idx]['format'] == 'mapping':    columns_data[column_idx][entries_read] = bisect.bisect_left(columns[column_idx]['map'],column_data)
+                elif columns[column_idx]['format'] == 'integers': columns_data[column_idx][entries_read] = int(column_data) - columns[column_idx]['min']
+                elif columns[column_idx]['format'] == 'strings':  columns_data[column_idx][entries_read] = column_data
 
+        if args.test or 'QNAME' in args.raw:
+            column_code = ','.join([ column['name']+'=columns_data['+str(idx)+']' for idx,column in enumerate(columns) ])
+            with open(os.path.join(temp_directory,'QNAME.raw'),'wb') as out_file:
+                exec('numpy.savez(out_file,' + column_code + ')')
 
-        if args.test:
-            write_out(qname_array,'QNAME.raw',0) # The raw array with the smallest dtype
-            temp_array = numpy.asarray(qname_array,','.join([max_dtype]*columns)) # Now all columns have the dtype to the largest. Required for rotation.
-            temp_array.dtype = max_dtype
-            temp_array.shape = len(qname_array),len(qname_array[0])
-            write_out(numpy.rot90(temp_array,1),'QNAME.raw.rotate1',1)
-            write_out(numpy.rot90(temp_array,2),'QNAME.raw.rotate2',2)
-            write_out(numpy.rot90(temp_array,3),'QNAME.raw.rotate3',3)
-            del temp_array
+        if args.test or 'QNAME' not in args.raw:
+            # Now we just check how many QNAMEs were repeated
+            common_dtype_columns_data = numpy.stack(columns_data, axis=1)
+            common_dtype_columns_data.dtype = ','.join(common_dtype_columns_data.shape[1]*[str(common_dtype_columns_data.dtype)]) # Given the dtype of the largest array automatically during stack()
+            print '           Sorting QNAMEs.'
+            common_dtype_columns_data, columns_key = numpy.unique(common_dtype_columns_data, return_inverse=True)
+            old_shape = len(common_dtype_columns_data), len(common_dtype_columns_data[0])
+            common_dtype_columns_data.dtype = common_dtype_columns_data.dtype[0]
+            common_dtype_columns_data.shape = old_shape
+            for column_idx in range(len(columns)):
+                columns_data[column_idx] = common_dtype_columns_data[:,column_idx].astype(columns[column_idx]['dtype'])
+            column_code = ','.join([ column['name']+'=columns_data['+str(idx)+']' for idx,column in enumerate(columns) ])
+            with open(os.path.join(temp_directory,'QNAME'),'wb') as out_file:
+                exec('numpy.savez(out_file,' + column_code + ')')
 
-        if 'QNAME' in args.raw and not args.test:
-            if 'QNAME' in rotations:
-                qname_array = numpy.asarray(qname_array,','.join([max_dtype]*columns)) # Now all columns have the dtype of the largest column. Required for rotation.
-                qname_array.dtype = max_dtype
-                qname_array.shape = columns,rows
-                write_out(numpy.rot90(qname_array,rotations['QNAME']),'QNAME.raw',rotations['QNAME'])
-            else:
-                write_out(qname_array,'QNAME.raw',0)
-        else:
-            beforeLength = len(qname_array)
-            qname_array,qname_key = numpy.unique(qname_array, return_inverse=True)
-            if   len(qname_array) <= 256:                  qname_key_dtype = 'uint8';  qname_key = qname_key.astype(qname_key_dtype)
-            elif len(qname_array) <= 65536:                qname_key_dtype = 'uint16'; qname_key = qname_key.astype(qname_key_dtype)
-            elif len(qname_array) <= 4294967296:           qname_key_dtype = 'uint32'; qname_key = qname_key.astype(qname_key_dtype)
-            elif len(qname_array) <= 18446744073709551616: qname_key_dtype = 'uint64'; qname_key = qname_key.astype(qname_key_dtype)
-            if len(qname_array) != beforeLength:
-                if len(qname_array)*2 != beforeLength:
-                    print 'INFO: Of the',beforeLength,'reads in the file,',beforeLength-len(qname_array),'contained duplicated read names/headers/QNAMEs.'
+            with open(os.path.join(temp_directory,'QNAME.key'),'wb') as out_file:
+                numpy.savez(out_file,table=columns_key)
+            del columns_key
+
+            if len(columns_data[0]) != status.total:
+                if len(columns_data[0])*2 != status.total:
+                    print 'INFO: Of the',status.total,'reads in the file,',status.total-len(columns_data[0]),'contained duplicated read names/headers/QNAMEs.'
                     print '      What is unusual is that this number is not half the file (which might make sense for paired-end sequencing).'
                     print '      Thus, there may be a mistake in your QNAME formatting, however, it is not my place to judge - encoding will be totally uneffected.'
                 else: 
                     print 'INFO: This file looks like it contains properly-formatted paired end data.'
             else:
-                print 'INFO: This file looks like it contains single-end sequencing data.'
+                print 'INFO: This file looks like it contains single-end sequencing data, or is 1 of 2 paired-end files.'
                 print '      If that is NOT the case, then there may be a mistake in your QNAME formatting. Otherwise everything is fine :)'
-            write_out(qname_key,'QNAME.key',0); del qname_key
-            if args.test:
-                write_out(qname_array,'QNAME',0) # This array will have the smallest dtype for each column possible
-                qname_array = numpy.asarray(qname_array,','.join([max_dtype]*columns)) # Now all columns have the dtype of the largest column. Required for rotation.
-                qname_array.dtype = max_dtype
-                qname_array.shape = columns,rows
-                write_out(numpy.rot90(qname_array,1),'QNAME.rotate1',1)
-                write_out(numpy.rot90(qname_array,2),'QNAME.rotate2',2)
-                write_out(numpy.rot90(qname_array,3),'QNAME.rotate3',3)
-            else:
-                if 'QNAME' in rotations:
-                    qname_array = numpy.asarray(qname_array,','.join([max_dtype]*columns)) # Now all columns have the dtype to the largest. Required for rotation.
-                    qname_array.dtype = max_dtype
-                    qname_array.shape = columns,rows
-                    write_out(numpy.rot90(qname_array,rotations['QNAME']),'QNAME',rotations['QNAME'])
-                else:
-                    write_out(qname_array,'QNAME',0)
-        del qname_array
+
         print 'Encoded QNAMEs written to disk!',status.split_time()
 
-        if args.reorder:
-            print 'Bonus Step: Reordering reads to optimize compression.'
-            master = numpy.stack([ read_in('DNA.key'), read_in('QNAME.key'), read_in('QUAL.key') ], axis=1)
-            master = master[master[:,2].argsort(kind='quicksort')]
-            master = master[master[:,1].argsort(kind='mergesort')]
-            master = master[master[:,0].argsort(kind='mergesort')]
-            write_out(numpy.rot90(master),'master.key',1)
 
-        try:
-            with tarfile.open(os.path.join(temp_directory,'temp.uq'), mode='w') as temp_out:
-                for f in os.listdir(temp_directory): temp_out.add(os.path.join(temp_directory,f),arcname='.')
-            os.rename(os.path.join(temp_directory,'temp.uq'), args.output)
-            for f in os.listdir(temp_directory): os.remove(os.path.join(temp_directory,f))
-        except Exception as e:
-            print 'ERROR: There was an error taking the encoded data and putting it all in a single tar file:'
-            print '      ',e
-            print '       You might be able to still do it manually. Take a look inside',temp_directory
+    exit() # REMOVE if not args.peek!
+
+    if args.reorder or args.test:
+        print 'Bonus Step: Reordering reads to optimize compression.'
+        master = numpy.stack([ read_in('DNA.key')['table'], read_in('QNAME.key')['table'], read_in('QUAL.key')['table'] ], axis=1)
+        master = master[master[:,2].argsort(kind='quicksort')]
+        master = master[master[:,1].argsort(kind='mergesort')]
+        master = master[master[:,0].argsort(kind='mergesort')]
+        write_out(master,'master.key',1)
+
+    try:
+        with tarfile.open(os.path.join(temp_directory,'temp.uq'), mode='w') as temp_out:
+            for f in os.listdir(temp_directory): temp_out.add(os.path.join(temp_directory,f),arcname='.')
+        os.rename(os.path.join(temp_directory,'temp.uq'), args.output)
+        for f in os.listdir(temp_directory): os.remove(os.path.join(temp_directory,f))
+    except Exception as e:
+        print 'ERROR: There was an error taking the encoded data and putting it all in a single tar file:'
+        print '      ',e
+        print '       You might be able to still do it manually. Take a look inside',temp_directory
+
+
+
+
+
+
+
+
+
+
 
 if args.decode or args.paranoid:
     if args.decode:
@@ -876,5 +862,12 @@ Developer To Dos / Notes:
 
 5) Could ACGTrie all this DNA, then the only change would be the idx points to the end row in the trie (and working backwards gets you the DNA)
    Same could work for the QUAL too.
+
+6) You can't rotated the QNAMES John - it'll be a mix of uints and text...?
+
+7) pypy is really really slow at doing rotations (hours) compared to cpython (seconds). Perhaps rotation is unessecary and only writing/appending data via index is needed to acheive same result.
+   If using C struct this is irrelevent anyway.  
+
+8) There are no repeated QNAMEs (or few) so key method isn't working so well. Should make a key per column after sort/unique'ing columns individually, then even sort/unique the stack of those keys. Or all keys. Or something.
 
 '''
