@@ -630,7 +630,7 @@ else:
         'QNAME_columns':            columns
     }
 
-    if not args.peek:
+    if args.peek:
         print 'The config.json would look like:'
         print json.dumps(decoder_ring,indent=4)
 
@@ -688,33 +688,23 @@ else:
         print 'Encoded QNAMEs written to disk!',status.split_time()
 
 
-    exit() # REMOVE if not args.peek!
+        if args.reorder or args.test:
+            print 'Bonus Step: Reordering reads to optimize compression.'
+            master = numpy.stack([ read_in('DNA.key')['table'], read_in('QNAME.key')['table'], read_in('QUAL.key')['table'] ], axis=1)
+            master = master[master[:,2].argsort(kind='quicksort')]
+            master = master[master[:,1].argsort(kind='mergesort')]
+            master = master[master[:,0].argsort(kind='mergesort')]
+            write_out(master,'master.key',1)
 
-    if args.reorder or args.test:
-        print 'Bonus Step: Reordering reads to optimize compression.'
-        master = numpy.stack([ read_in('DNA.key')['table'], read_in('QNAME.key')['table'], read_in('QUAL.key')['table'] ], axis=1)
-        master = master[master[:,2].argsort(kind='quicksort')]
-        master = master[master[:,1].argsort(kind='mergesort')]
-        master = master[master[:,0].argsort(kind='mergesort')]
-        write_out(master,'master.key',1)
-
-    try:
-        with tarfile.open(os.path.join(temp_directory,'temp.uq'), mode='w') as temp_out:
-            for f in os.listdir(temp_directory): temp_out.add(os.path.join(temp_directory,f),arcname='.')
-        os.rename(os.path.join(temp_directory,'temp.uq'), args.output)
-        for f in os.listdir(temp_directory): os.remove(os.path.join(temp_directory,f))
-    except Exception as e:
-        print 'ERROR: There was an error taking the encoded data and putting it all in a single tar file:'
-        print '      ',e
-        print '       You might be able to still do it manually. Take a look inside',temp_directory
-
-
-
-
-
-
-
-
+        try:
+            with tarfile.open(os.path.join(temp_directory,'temp.uq'), mode='w') as temp_out:
+                for f in os.listdir(temp_directory): temp_out.add(os.path.join(temp_directory,f),arcname='.')
+            os.rename(os.path.join(temp_directory,'temp.uq'), args.output)
+            for f in os.listdir(temp_directory): os.remove(os.path.join(temp_directory,f))
+        except Exception as e:
+            print 'ERROR: There was an error taking the encoded data and putting it all in a single tar file:'
+            print '      ',e
+            print '       You might be able to still do it manually. Take a look inside',temp_directory
 
 
 
