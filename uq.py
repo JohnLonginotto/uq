@@ -175,7 +175,7 @@ else:
         status.update()
 
         # Some very basic FASTQ checks. Used to be more checks, but FASTQ is such a silly format most checks end up being overzealous or true for FASTA too.
-        if not line1.startswith('@'):                 print 'ERROR: This does not look like a FASTA/FASTQ file! (first line does not start with @)'; exit()
+        if not line1.startswith('@'): print 'ERROR: This does not look like a FASTA/FASTQ file! (first line does not start with @)'; exit()
 
         # QNAME
         prefix = line1
@@ -189,10 +189,13 @@ else:
         dna_max = len(line2)
 
         # +
-        '(no checks currently done, no data collected, always decodes to a +)'
+        if not line3.startswith('+'): print 'ERROR: This does not look like a FASTA/FASTQ file! (third line does not start with +)'; exit()
+        '(no data collected, always decodes to a +)'
 
         # QUAL
-        quals = set(line4) 
+        quals = set(line4)
+
+        if len(line2) != len(line4): print 'ERROR: This does not look like a FASTA/FASTQ file! (SEQ and QUAL lines are not the same length)'; exit()
 
         # N encoded in quality score:
         static_qualities = {}
@@ -208,7 +211,7 @@ else:
             try:
                 qname = next(f)[:-1]
                 dna = next(f)[:-1]
-                next(f) # +
+                if next(f)[0] != '+': print "ERROR: For entry",status.current,"the third line does not start with +"; exit()
                 qualities = next(f)[:-1]
                 status.update()
             except StopIteration: break
