@@ -596,20 +596,35 @@ else:
         for column in columns:
             # Now we fiddle with things a bit:
             if column['format'] == 'mapping':
-                i = len(column['map'])
-                if   i <= 255:                  column['dtype'] = 'uint8'
-                elif i <= 65535:                column['dtype'] = 'uint16'
-                elif i <= 4294967295:           column['dtype'] = 'uint32'
-                elif i <= 18446744073709551615: column['dtype'] = 'uint64'
-                column['map'] = sorted(column['map']) # The sort allows us to bisect the map instead of doing hashtable work.
+                map_len = len(column['map'])
+                if   map_len <= 255:                  map_len = 255                  ; column['dtype'] = 'uint8'
+                elif map_len <= 65535:                map_len = 65535                ; column['dtype'] = 'uint16'
+                elif map_len <= 4294967295:           map_len = 4294967295           ; column['dtype'] = 'uint32'
+                elif map_len <= 18446744073709551615: map_len = 18446744073709551615 ; column['dtype'] = 'uint64'
+                try:
+                    # Here we convert a map to an integer if it doesn't effect the dtype size (but would make encoding/decoding quicker)
+                    _ = map(int,column['map'])
+                    if max(_) - min(_) <= map_len:
+                        column['format'] = 'integers'
+                        column['max'] = max(_)
+                        column['min'] = min(_)
+                        if min(_) < 0 or max(_) > map_len: column['offset'] = True
+                        else: column['offset'] = False
+                        del column['map']
+                except: column['map'] = sorted(column['map']) # ASCII sort the map
+
             elif column['format'] == 'integers':
-                i = column['max']-column['min'] +1
-                if   i <= 255:                  column['dtype'] = 'uint8'
-                elif i <= 65535:                column['dtype'] = 'uint16'
-                elif i <= 4294967295:           column['dtype'] = 'uint32'
-                elif i <= 18446744073709551615: column['dtype'] = 'uint64'
+                int_len = column['max']-column['min']
+                if   int_len <= 255:                  int_len = 255                  ; column['dtype'] = 'uint8'
+                elif int_len <= 65535:                int_len = 65535                ; column['dtype'] = 'uint16'
+                elif int_len <= 4294967295:           int_len = 4294967295           ; column['dtype'] = 'uint32'
+                elif int_len <= 18446744073709551615: int_len = 18446744073709551615 ; column['dtype'] = 'uint64'
+                if column['min'] < 0 or column['max'] > int_len: column['offset'] = True
+                else: column['offset'] = False
+
             elif column['format'] == 'strings':
                 print 'I havent implimented this yet'; exit()
+
             print '    - Column',idx+1,'is type',column['format'],'stored as',column['dtype']
     else: print 'Step 3 of 4: Skipped as there are no delimiters common to all QNAMEs'
 
@@ -646,9 +661,10 @@ else:
         for column in columns: columns_data.append( numpy.zeros(decoder_ring['reads'],column['dtype']) )
         for entries_read,qname in enumerate(qname_reader(args.input,prefix,suffix)):
             for column_idx,column_data in enumerate(qname):
-                if columns[column_idx]['format'] == 'mapping':    columns_data[column_idx][entries_read] = bisect.bisect_left(columns[column_idx]['map'],column_data)
-                elif columns[column_idx]['format'] == 'integers': columns_data[column_idx][entries_read] = int(column_data) - columns[column_idx]['min']
-                elif columns[column_idx]['format'] == 'strings':  columns_data[column_idx][entries_read] = column_data
+                if columns[column_idx]['format'] == 'mapping':                                      columns_data[column_idx][entries_read] = bisect.bisect_left(columns[column_idx]['map'],column_data)
+                elif columns[column_idx]['format'] == 'integers' and columns[column_idx]['offset']: columns_data[column_idx][entries_read] = int(column_data) - columns[column_idx]['min']
+                elif columns[column_idx]['format'] == 'integers':                                   columns_data[column_idx][entries_read] = int(column_data)
+                elif columns[column_idx]['format'] == 'strings':                                    columns_data[column_idx][entries_read] = column_data
 
         if args.test or 'QNAME' in args.raw:
             column_code = ','.join([ column['name']+'=columns_data['+str(idx)+']' for idx,column in enumerate(columns) ])
