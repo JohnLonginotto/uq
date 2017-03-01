@@ -180,6 +180,8 @@ else:
                             temp_qual = (temp_qual << self.bits_per_quality) + self.N_qual[base]    # This line is why qualities and DNA are analysed at the same time. Really, this should be more generic.
                     self.dna_array[row] = tuple((temp_dna >> x) & 255 for x in self.dna_magic)
                     self.qual_array[row] = tuple((temp_qual >> x) & 255 for x in self.quality_magic)
+
+
                     self.status.update()
             return (self.dna_array,self.qual_array)
 
@@ -233,9 +235,12 @@ else:
         return numpy.load(os.path.join(temp_directory,filename))
 
     def compressed_size(table):
+        if not args.compressor: return table.size
         p = subprocess.Popen(args.compressor + ' | wc -c', stdin=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
         numpy.save(p.stdin,table)
-        return int(p.communicate()[0])
+        result = int(p.communicate()[0])
+        del p # Added this because system memory seems to go up and up and up...
+        return result
 
     def test_patterns(table):
         if not args.compressor: return [table.size, '1.1'] # If the user isn't using compression, patterning won't make a difference, but keys might, so return size
@@ -628,29 +633,37 @@ else:
         return test
         # Add totals to test_results here.
 
-    def encode_dna_qual(sort_order,table,table_name,raw,test): # If a truthy value is provided for sort_order, will sort output with it. If False, will sort and return a sort_order. If None, no sorting done.
+    def encode_dna_qual(sort_order,table,table_name,raw,test): # If sort_order is a numpy.ndarray, will sort output with it. If False, will sort and return a sort_order. If None, no sorting done.
         if raw:
-            if type(sort_order) is NoneType:
+            if sort_order is None:
                 if test: test[table_name+'.raw'] = test_patterns(table)
                 else: write_pattern(table,table_name+'.raw')
             else:
-                if type(sort_order) is bool:
-                    original_dtype = table.dtype            # pypy currently
-                    table.dtype = 'V' + str(len(table[0]))  # needs this
-                    sort_order = numpy.argsort(table)       # to be
-                    table.dtype = original_dtype            # quick :(
-                if test: test[table_name+'.raw'] = test_patterns(table[sort_order])
-                else:    write_pattern(table[sort_order],table_name+'.raw')
+                original_dtype = table.dtype            # pypy needs this
+                table.dtype = 'V' + str(len(table[0]))  # to be quick :(
+                if sort_order is False: sort_order = numpy.argsort(table)
+                table = table[sort_order]
+                table.dtype = original_dtype
+                if test: test[table_name+'.raw'] = test_patterns(table)
+                else:    write_pattern(table,table_name+'.raw')
         else:
+            '''
+            print 'Table :',table
+            print 'Table dtype:',table.dtype
+            print 'Table size:',table.size
+            print 'V' + str(len(table[0]))
+            exit()
+            #dicks
+            '''
             original_dtype = table.dtype                         # pypy currently
             table.dtype = 'V' + str(len(table[0]))               # needs this
             table,key = numpy.unique(table, return_inverse=True) # to be
             table.dtype = original_dtype                         # quick :(
-            if type(sort_order) is NoneType:
+            if sort_order is None:
                 if test: test[table_name+'.key'] = compressed_size(key)
                 else: write_out(key,table_name+'.key')
             else:
-                if type(sort_order) is bool: sort_order = numpy.argsort(key)
+                if sort_order is False: sort_order = numpy.argsort(key)
                 if test: test[table_name+'.key'] = compressed_size(key[sort_order])
                 else: write_out(key[sort_order],table_name+'.key')
             table.dtype = original_dtype
@@ -663,7 +676,7 @@ else:
         for column in columns:
             columns_data.append(read_in(column['name']+'.temp'))
         if raw:
-            if type(sort_order) is bool:
+            if sort_order is False:
                 common_dtype_columns_data = numpy.stack(columns_data, axis=1)
                 #for column_idx in range(len(common_dtype_columns_data[0])):
                 #    common_dtype_columns_data = common_dtype_columns_data[common_dtype_columns_data[:,2].argsort(kind='mergesort')] # There's got to be an easier way to do this...
@@ -684,7 +697,7 @@ else:
             common_dtype_columns_data = numpy.stack(columns_data, axis=1)
             common_dtype_columns_data.dtype = ','.join(common_dtype_columns_data.shape[1]*[str(common_dtype_columns_data.dtype)]) # Given the dtype of the largest array automatically during stack()
             common_dtype_columns_data, columns_key = numpy.unique(common_dtype_columns_data, return_inverse=True)
-            if type(sort_order) is bool: sort_order = numpy.argsort(columns_key)
+            if sort_order is False: sort_order = numpy.argsort(columns_key) # Make sort_order if it doesn't exist.
             if type(sort_order) is numpy.ndarray:
                 if test: test['QNAME.key'] = compressed_size(columns_key[sort_order])
                 else: write_out(columns_key[sort_order],'QNAME.key')
@@ -705,9 +718,11 @@ else:
 
     if args.test:
         all_results = []
-        for raw_tables in [('DNA','QUAL','QNAME'),('DNA','QUAL'),('QUAL','QNAME'),('DNA','QNAME'),('DNA'),('QUAL'),('QNAME'),(None,)]:
+        print 'Starting tests:',status.split_time()
+        for raw_tables in [('DNA','QUAL','QNAME'),('DNA','QUAL'),('QUAL','QNAME'),('DNA','QNAME'),('DNA',),('QUAL',),('QNAME',),(None,)]:
             for to_sort in ['DNA','QUAL','QNAME',None]:
                 all_results.append(run_mix(to_sort,raw_tables,True))
+                print to_sort,raw_tables,status.split_time(),all_results[-1]['total_size']
         for result in sorted(all_results, key=lambda k: k['total_size']):
             print 'Size:',str(result['total_size']).rjust(10),
             print ' Sorted:',str(result['sorted_on']).ljust(5),
@@ -990,30 +1005,16 @@ Developer To Dos / Notes:
 
 1) Variable-length encoded into the qual scores.
 
-2) get --order working
-
-3) To reduce the final output filesize further, i would like to write all reads containing Ns to a separate file, then once the unique/sorted
+2) To reduce the final output filesize further, i would like to write all reads containing Ns to a separate file, then once the unique/sorted
    list is created (for DNA/QUAL), try replacing the N with any other letter to get a fragment that is already in the unique dataset. Since the list
    is sorted, we can use a binary intersect and figure that out near-instantaniously, so it's reasonable. If no match is found, replace Ns with the most
    common base, which is what is currently done. This is part of the LOSSLESS part of the program, so really it would benefit all.
 
-4) The analysing/encoding of the data is 3-10x faster in pypy than regular python, however,
-   pypy does not support numpy like CPython does. Specifically the numpy.unique and numpy.fromfile / numpy.load
-   functions are not implimented fully. numpy.save is, however.
-   Having said that, ideally we would want to drop the numpy dependancy all together. Although numpy is a huge project
-   I don't know if save/load/unique/rot90 will all work in 10-20 years from now. Python 2 and 3 intepreters, however
-   definitely will. For that reason, I would like to impliment in pure python the unique and rot90 functions.
-   If the user uses pypy, this script will encode/decode much faster - and of course can still be decoded by standard python.
-   But really, if people like the project, would be re-written in C, parallelized, etc. Then again. C rarely compiles first time.
+3) Change the array to a super-fast CFFI array a la ACGTrie.
 
-5) Could ACGTrie all this DNA, then the only change would be the idx points to the end row in the trie (and working backwards gets you the DNA)
+4) DNA could actually be stored in ACGTrie format, rather than a struct. Idx points to the end row in the trie (and working backwards gets you the DNA)
    Same could work for the QUAL too.
 
-6) You can't rotated the QNAMES John - it'll be a mix of uints and text...?
-
-7) pypy is really really slow at doing rotations (hours) compared to cpython (seconds). Perhaps rotation is unessecary and only writing/appending data via index is needed to acheive same result.
-   If using C struct this is irrelevent anyway.  
-
-8) There are no repeated QNAMEs (or few) so key method isn't working so well. Should make a key per column after sort/unique'ing columns individually, then even sort/unique the stack of those keys. Or all keys. Or something.
+5) There are no repeated QNAMEs (or few) so key method isn't working so well. Should make a key per column after sort/unique'ing columns individually, then even sort/unique the stack of those keys. Or all keys. Or something.
 
 '''
