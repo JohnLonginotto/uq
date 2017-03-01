@@ -96,12 +96,9 @@ parser.add_argument("-i", "--input",  required=True,                      help='
 parser.add_argument("-o", "--output",                                     help='Optional. Default is to append .uq to input filename.')
 parser.add_argument("--raw",          nargs='+', metavar='file name',     help='Optional. Saves data as a raw table rather than unique & sorted +key combo. [DNA/QUAL/QNAME]')
 parser.add_argument("--temp",                                             help='Optional. Directory to write temporary files to.')
-#parser.add_argument("--dna",                                              help='Optional. [drop/hide] - see readme/code for details.')
-#parser.add_argument("--qual",                                             help='Optional. [nearest/weighted] [N] - see readme/code for details.')
-#parser.add_argument("--qname",                                            help='Optional. [unique/duplicate] - see readme/code for details.')
 parser.add_argument("--compressor",   action='store',                     help='Optional. Path to compression program.')
+parser.add_argument("--sort",         action='store',                     help='Optional. See output of --test for details.')
 parser.add_argument("--pattern",      nargs='+', metavar='pattern',       help='Optional. See output of --test for details.')
-#parser.add_argument("--reorder",      action='store_true', default=False, help='Optional. No parameters - see readme/code for details.')
 parser.add_argument("--test",         action='store_true', default=False, help='Optional. Writes a uq tar file with every possible data output orientation. Compress them all with your compressor of choice to find the appropriate values for --raw.')
 parser.add_argument("--pad",          action='store_true', default=False, help='Optional. Pads DNA/QUAL to the nearest 2/4/8 bits. Some compressors do a better job when data is padded.')
 parser.add_argument("--peek",         action='store_true', default=False, help='Optional. No output files are created, the input is just scanned for the parameters that *would* be used.')
@@ -112,15 +109,10 @@ args = parser.parse_args()
 
 if not args.pattern: args.pattern = ['1.1','1.1'] # default pattern
 elif len(args.pattern) != 2: print 'ERROR: There must be 2 values for --pattern!'; exit()
-elif not all([pattern in ['1.1','1.2','1.1','1.2','1.1','1.2','1.1','1.2'] for pattern in args.pattern]): print 'ERROR: Pattern values are incorrect!'; exit()
-
-#if args.qname or args.qual or args.dna or args.paranoid or args.delete: print 'Not implimented yet.'; exit()
+elif not all([pattern in ['1.1','2.1','3.1','4.1','1.2','2.2','3.2','4.2'] for pattern in args.pattern]): print 'ERROR: Pattern values are incorrect!'; exit()
 
 if args.raw:
-    for x in args.raw:
-        if x not in ['DNA','QUAL','QNAME']:
-            print 'ERROR: When using --raw, you must specificy if which tables, "DNA", "QUAL" or "QNAME", you wish to keep as raw.'
-            exit()
+    if not all([raw in ['DNA','QUAL','QNAME'] for raw in args.raw]): print 'ERROR: raw values are incorrect!'; exit()
     args.raw = set(args.raw)
 else: args.raw = set()
 
@@ -133,11 +125,13 @@ if args.decode:
             print 'ERROR: Sorry, the DIRECTORY you have used as a decoding input does not include the config.json file.'; exit()
         else: is_tar = False
     else: print 'ERROR: Sorry, the path you have provided for input does not exist - please check it and try again :)'; exit() 
+
+
 else:
     if not os.path.isfile(args.input):  print 'ERROR: Sorry, the input path you have specified is not a file path. Please check it and try again! :)'; exit()
     temp_directory = args.temp if args.temp else tempfile.mkdtemp()
     if args.output == None: args.output = args.input + '.uq'
-    print temp_directory
+    print 'Temporary directory:',temp_directory
 
     # A small class we can use to query the current status. On initlization it wc -l's the file. Will extend in the future to unzip gzipped fastq.
     class init_status:
@@ -152,7 +146,7 @@ else:
             self.message = ''
         def update(self):
             self.current += 1
-            if self.current & 8191 == 8191: # an efficient way of saying "do something every couple FASTQ entires"
+            if self.current & 8191 == 8191: # an efficient way of saying "do somthing every couple of FASTQ entrys"
                 sys.stdout.write('\033[A')
                 sys.stdout.flush()
                 print self.message, '(' + str( (self.current/float(self.total))*100)[:5] + '%)'
@@ -163,8 +157,105 @@ else:
         def total_time(self): return time.time() - self.time
     status = init_status(args.input)
 
+    class encoder:
+        def this(self):
+            self.status.current = 0
+            with open(self.file_path,'rb') as f:
+                for row in xrange(self.total_reads):
+                    try:
+                        next(f)
+                        dna = next(f)[:-1]
+                        next(f)
+                        quals = next(f)[:-1]
+                        #if 'N' in dna: continue
+                    except StopIteration: break
+                    temp_dna = self.variable_read_lengths  #   either 1 or 0
+                    temp_qual = self.variable_read_lengths # for True or False
+                    for base,quality in itertools.izip(dna,quals):
+                        try:
+                            temp_dna = (temp_dna << self.bits_per_base) + self.bases.index(base)
+                            temp_qual = (temp_qual << self.bits_per_quality) + self.qualities.index(quality)
+                        except ValueError:
+                            temp_dna = (temp_dna << self.bits_per_base) + self.N_base
+                            temp_qual = (temp_qual << self.bits_per_quality) + self.N_qual[base]    # This line is why qualities and DNA are analysed at the same time. Really, this should be more generic.
+                    self.dna_array[row] = tuple((temp_dna >> x) & 255 for x in self.dna_magic)
+                    self.qual_array[row] = tuple((temp_qual >> x) & 255 for x in self.quality_magic)
+                    self.status.update()
+            return (self.dna_array,self.qual_array)
 
-    status.message = 'Step 1 of 4: Analysing file to find an optimal/safe encoding strategy.'
+        def __init__(self,total_reads,bases,qualities,N_qual,dna_bytes_per_row,quality_bytes_per_row,variable_read_lengths,status,file_path):
+            self.status = status
+            self.file_path = file_path
+            self.dna_magic = range( (dna_bytes_per_row-1) * 8,-8,-8)
+            self.quality_magic = range( (quality_bytes_per_row-1) * 8,-8,-8)
+            self.total_reads = total_reads
+            self.bases = ''.join(bases)
+            self.qualities = ''.join(qualities)
+            self.variable_read_lengths = int(variable_read_lengths)
+            self.bits_per_base = (len(bases)-1).bit_length()
+            self.bits_per_quality = len(qualities).bit_length()
+            self.N_base = 0 # The most common base (with presumably the smallest post-compression code)
+            self.N_qual = N_qual
+            self.dna_array  = numpy.zeros(total_reads,numpy.dtype(','.join(    dna_bytes_per_row *['uint8'])))
+            self.qual_array = numpy.zeros(total_reads,numpy.dtype(','.join(quality_bytes_per_row *['uint8'])))
+            self.more_dna_magic = range( dna_bits - self.bits_per_base ,-self.bits_per_base,-self.bits_per_base)
+
+    def struct_to_std(ar):
+        length = len(ar)
+        columns = len(ar[0])
+        ar.dtype = 'uint8'
+        ar.shape = (length,columns)
+
+    def std_to_struct(ar):
+        length,columns = ar.shape
+        ar.dtype = ','.join(columns*['uint8'])
+        ar.shape = length
+
+    def write_pattern(table,filename):
+        struct_to_std(table)
+        if filename.startswith('DNA'):    pattern = args.pattern[0]
+        elif filename.startswith('QUAL'): pattern = args.pattern[1]
+        with open(os.path.join(temp_directory,filename),'wb') as f:
+            if pattern == '1.1': numpy.save( f, numpy.ascontiguousarray(             table    ))
+            if pattern == '2.1': numpy.save( f, numpy.ascontiguousarray( numpy.rot90(table,1) ))
+            if pattern == '3.1': numpy.save( f, numpy.ascontiguousarray( numpy.rot90(table,2) ))
+            if pattern == '4.1': numpy.save( f, numpy.ascontiguousarray( numpy.rot90(table,3) ))
+            if pattern == '2.2': numpy.save( f, numpy.asfortranarray(                table    ))
+            if pattern == '3.2': numpy.save( f, numpy.asfortranarray(    numpy.rot90(table,1) ))
+            if pattern == '4.2': numpy.save( f, numpy.asfortranarray(    numpy.rot90(table,2) ))
+            if pattern == '1.2': numpy.save( f, numpy.asfortranarray(    numpy.rot90(table,3) ))
+        std_to_struct(table)
+
+    def write_out(table,filename):
+        with open(os.path.join(temp_directory,filename),'wb') as f: numpy.save( f, table )
+
+    def read_in(filename):
+        return numpy.load(os.path.join(temp_directory,filename))
+
+    def compressed_size(table):
+        p = subprocess.Popen(args.compressor + ' | wc -c', stdin=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
+        numpy.save(p.stdin,table)
+        return int(p.communicate()[0])
+
+    def test_patterns(table):
+        if not args.compressor: return [table.size, '1.1'] # If the user isn't using compression, patterning won't make a difference, but keys might, so return size
+        results = []
+        struct_to_std(table)
+        # Rotate & Flip -- Note, flipping with flipud/fliplr does nothing the below doesn't catch. Endian might make a difference...
+        results.append([ compressed_size(numpy.ascontiguousarray(table)               ), '1.1' ])
+        results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,1))), '2.1' ])
+        results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,2))), '3.1' ])
+        results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,3))), '4.1' ])
+        results.append([ compressed_size(numpy.asfortranarray(table)                  ), '2.2' ])
+        results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,1))   ), '3.2' ])
+        results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,2))   ), '4.2' ])
+        results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,3))   ), '1.2' ])
+        #for result,name in sorted(results): print name.rjust(10) + ':' + str(result).rjust(10)    ## This line prints out the results, so you can see them all, not just the best.
+        std_to_struct(table)
+        return sorted(results)[0]
+
+
+    status.message = 'Pass 1 of 4: First pass through file to find optimal/safe encoding strategy.'
     ## Read first 4 lines:
     with open(args.input,'rb') as f:
         line1,line2,line3,line4 = next(f)[:-1],next(f)[:-1],next(f),next(f)[:-1]
@@ -365,188 +456,7 @@ else:
 
 
 
-
-
-
-
-    status.message = 'Step 2 of 4: Encoding DNA and Quality Scores using optimized settings.'
-    if not args.peek:
-        class encoder:
-            def this(self):
-                self.status.current = 0
-                with open(self.file_path,'rb') as f:
-                    for row in xrange(self.total_reads):
-                        try:
-                            next(f)
-                            dna = next(f)[:-1]
-                            next(f)
-                            quals = next(f)[:-1]
-                            #if 'N' in dna: continue
-                        except StopIteration: break
-                        temp_dna = self.variable_read_lengths  #   either 1 or 0
-                        temp_qual = self.variable_read_lengths # for True or False
-                        for base,quality in itertools.izip(dna,quals):
-                            try:
-                                temp_dna = (temp_dna << self.bits_per_base) + self.bases.index(base)
-                                temp_qual = (temp_qual << self.bits_per_quality) + self.qualities.index(quality)
-                            except ValueError:
-                                temp_dna = (temp_dna << self.bits_per_base) + self.N_base
-                                temp_qual = (temp_qual << self.bits_per_quality) + self.N_qual[base]
-                        self.dna_array[row] = tuple((temp_dna >> x) & 255 for x in self.dna_magic)
-                        self.qual_array[row] = tuple((temp_qual >> x) & 255 for x in self.quality_magic)
-                        self.status.update()
-
-                return (self.dna_array,self.qual_array)
-
-            def __init__(self,total_reads,bases,qualities,N_qual,dna_bytes_per_row,quality_bytes_per_row,variable_read_lengths,status,file_path):
-                self.status = status
-                self.file_path = file_path
-                self.dna_magic = range( (dna_bytes_per_row-1) * 8,-8,-8)
-                self.quality_magic = range( (quality_bytes_per_row-1) * 8,-8,-8)
-                self.total_reads = total_reads
-                self.bases = ''.join(bases)
-                self.qualities = ''.join(qualities)
-                self.variable_read_lengths = int(variable_read_lengths)
-                self.bits_per_base = (len(bases)-1).bit_length()
-                self.bits_per_quality = len(qualities).bit_length()
-                self.N_base = 0 # The most common base (with presumably the smallest post-compression code)
-                self.N_qual = N_qual
-                self.dna_array  = numpy.zeros(total_reads,numpy.dtype(','.join(    dna_bytes_per_row *['uint8'])))
-                self.qual_array = numpy.zeros(total_reads,numpy.dtype(','.join(quality_bytes_per_row *['uint8'])))
-                self.more_dna_magic = range( dna_bits - self.bits_per_base ,-self.bits_per_base,-self.bits_per_base)
-
-        encode = encoder(status.total,dna_bases,quals,N_qual,dna_columns_needed,qual_columns_needed,variable_read_lengths,status,args.input)
-
-        dna_array,qual_array = encode.this()
-        print 'Finished encoding',status.split_time(),'sorting qualities...'
-
-        def struct_to_std(ar):
-            length = len(ar)
-            columns = len(ar[0])
-            ar.dtype = 'uint8'
-            ar.shape = (length,columns)
-
-        def std_to_struct(ar):
-            length,columns = ar.shape
-            ar.dtype = ','.join(columns*['uint8'])
-            ar.shape = length
-
-        def write_pattern(table,filename):
-            struct_to_std(table)
-            if filename.startswith('DNA'):    pattern = args.pattern[0]
-            elif filename.startswith('QUAL'): pattern = args.pattern[1]
-            with open(os.path.join(temp_directory,filename),'wb') as f:
-                if pattern == '1.1': numpy.save( f, numpy.ascontiguousarray(             table    ))
-                if pattern == '2.1': numpy.save( f, numpy.ascontiguousarray( numpy.rot90(table,1) ))
-                if pattern == '3.1': numpy.save( f, numpy.ascontiguousarray( numpy.rot90(table,2) ))
-                if pattern == '4.1': numpy.save( f, numpy.ascontiguousarray( numpy.rot90(table,3) ))
-                if pattern == '2.2': numpy.save( f, numpy.asfortranarray(                table    ))
-                if pattern == '3.2': numpy.save( f, numpy.asfortranarray(    numpy.rot90(table,1) ))
-                if pattern == '4.2': numpy.save( f, numpy.asfortranarray(    numpy.rot90(table,2) ))
-                if pattern == '1.2': numpy.save( f, numpy.asfortranarray(    numpy.rot90(table,3) ))
-
-            std_to_struct(table)
-
-        def write_out(table,filename):
-            #struct_to_std(table)
-            with open(os.path.join(temp_directory,filename),'wb') as f: numpy.save( f, table )
-
-        def read_in(filename):
-            return numpy.load(os.path.join(temp_directory,filename))
-
-        def compressed_size(table):
-            p = subprocess.Popen(args.compressor + ' | wc -c', stdin=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
-            numpy.save(p.stdin,table)
-            return int(p.communicate()[0])
-
-        def test_patterns(table):
-            if not args.compressor: return [table.size, '1.1'] # If the user isn't using compression, patterning won't make a difference, but keys might, so return size
-            results = []
-            struct_to_std(table)
-            # Rotate & Flip -- Note, flipping with flipud/fliplr does nothing the below doesn't catch. Endian might make a difference...
-            results.append([ compressed_size(numpy.ascontiguousarray(table)               ), '1.1' ])
-            results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,1))), '2.1' ])
-            results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,2))), '3.1' ])
-            results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,3))), '4.1' ])
-            results.append([ compressed_size(numpy.asfortranarray(table)                  ), '2.2' ])
-            results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,1))   ), '3.2' ])
-            results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,2))   ), '4.2' ])
-            results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,3))   ), '1.2' ])
-            for result,name in sorted(results): print name.rjust(10) + ':' + str(result).rjust(10)
-            std_to_struct(table)
-            return sorted(results)[0]
-
-        test_sizes = {}
-
-        write_out(dna_array,'DNA.temp'); del dna_array # Free up some RAM for the impending sort. Will process it later. Probably a waste of time for big compute servers.
-
-        if 'QUAL' in args.raw or args.test:
-            if args.test:
-                print 'QUAL.raw:'
-                test_sizes['QUAL.raw'] = test_patterns(qual_array)
-                args.pattern[1] = test_sizes['QUAL.raw'][1]
-                print ''
-            write_pattern(qual_array,'QUAL.raw')
-
-        if 'QUAL' not in args.raw or args.test:
-            original_dtype = qual_array.dtype
-            qual_array.dtype = 'V' + str(len(qual_array[0])) # pypy is much faster if the row type is just a single void, and not a whole bunch of columns.
-            qual_array,qual_key = numpy.unique(qual_array, return_inverse=True)
-            if   len(qual_array) <= 256:                  qual_key_dtype = 'uint8'
-            elif len(qual_array) <= 65536:                qual_key_dtype = 'uint16'
-            elif len(qual_array) <= 4294967296:           qual_key_dtype = 'uint32'
-            elif len(qual_array) <= 18446744073709551616: qual_key_dtype = 'uint64'
-            write_out(qual_key,'QUAL.key')
-            if args.test:
-                if args.compressor: test_sizes['QUAL.key'] = compressed_size(qual_key)
-                else:               test_sizes['QUAL.key'] = qual_key.size
-            del qual_key
-            qual_array.dtype = original_dtype
-            if args.test:
-                print 'QUAL:'
-                test_sizes['QUAL'] = test_patterns(qual_array)
-                args.pattern[1] = test_sizes['QUAL'][1]
-                print ''
-            write_pattern(qual_array,'QUAL')
-        del qual_array
-
-        print 'Finished sorting qualities',status.split_time(),'sorting DNA...'
-
-        dna_array = read_in('DNA.temp')
-        os.remove(os.path.join(temp_directory,'DNA.temp'))
-
-        if 'DNA' in args.raw or args.test:
-            if args.test:
-                print 'DNA.raw:'
-                test_sizes['DNA.raw'] = test_patterns(dna_array)
-                args.pattern[0] = test_sizes['DNA.raw'][1]
-                print ''
-            write_pattern(dna_array,'DNA.raw')
-
-        if 'DNA' not in args.raw or args.test:
-            original_dtype = dna_array.dtype
-            dna_array.dtype = 'V' + str(len(dna_array[0])) # pypy is much faster if the row type is just a single void, and not a whole bunch of columns.
-            dna_array,dna_key = numpy.unique(dna_array, return_inverse=True)
-            if   len(dna_array) <= 256:                  dna_key_dtype = 'uint8'
-            elif len(dna_array) <= 65536:                dna_key_dtype = 'uint16'
-            elif len(dna_array) <= 4294967296:           dna_key_dtype = 'uint32'
-            elif len(dna_array) <= 18446744073709551616: dna_key_dtype = 'uint64'
-            write_out(dna_key,'DNA.key')
-            if args.test:
-                if args.compressor: test_sizes['DNA.key'] = compressed_size(dna_key)
-                else: test_sizes['DNA.key'] = dna_key.size
-            del dna_key
-            dna_array.dtype = original_dtype
-            if args.test:
-                print 'DNA:'
-                test_sizes['DNA'] = test_patterns(dna_array)
-                args.pattern[0] = test_sizes['DNA'][1]
-                print ''
-            write_pattern(dna_array,'DNA')
-        del dna_array
-        print 'Encoded DNA and Qualities written to disk!\n',status.split_time()
-
-    status.message = 'Step 3 of 4: Analysing QNAME data between delimiters.'
+    status.message = 'Pass 2 of 4: Now QNAME delimiters are known, QNAMEs are being analysed.'
     if len(separators):
         def qname_reader(inFile,prefix,suffix):
             with open(inFile,'rb') as f:
@@ -566,6 +476,7 @@ else:
         target = 10000
         fallback = False
         columns = []
+
         '''
         columns explination:
         All columns start off as 'coded' which means a dictionary/mapping of all known values will be used to assign values to numbers, just like the DNA/QUAL.
@@ -603,7 +514,6 @@ else:
                     print '         Will fall back to assuming there is no delimiting of data.'
                     fallback = True
                     break
-
             for idx,column in enumerate(qname):
                 # By default all unique items are put into a set, where every item of this set will later be encoded with a binary uint:
                 if columns[idx]['format'] == 'mapping': columns[idx]['map'].add(column)
@@ -623,13 +533,10 @@ else:
                         del columns[idx]['max']
                 elif columns[idx]['format'] == 'strings':
                     if len(column) > columns[idx]['longest']: columns[idx]['longest'] = len(column)
-
             if entries_read == target:
                 check_format(columns,entries_read)
                 target *= 2
-        if fallback:
-            print 'I havent implimented this yet!'
-            exit()
+        if fallback: print 'I havent implimented this yet!'; exit()
         else: check_format(columns,entries_read) # Check the last bit of data that hadn't made it through yet.
 
         print 'Optimal encoding method for delimited data in QNAME determined!',status.split_time()
@@ -669,7 +576,153 @@ else:
                 print 'I havent implimented this yet'; exit()
 
             print '    - Column',idx+1,'is type',column['format'],'stored as',column['dtype']
-    else: print 'Step 3 of 4: Skipped as there are no delimiters common to all QNAMEs'
+    else: print 'Pass 2 of 4: Skipped as there are no delimiters common to all QNAMEs'
+
+
+    print ''
+    status.message = 'Pass 3 of 4: Encoding DNA and Quality scores...'
+    encode = encoder(status.total,dna_bases,quals,N_qual,dna_columns_needed,qual_columns_needed,variable_read_lengths,status,args.input)
+    arrays = encode.this()
+    write_out(arrays[0],'DNA.temp')  # Free up
+    write_out(arrays[1],'QUAL.temp') # system
+    del arrays                       # memory
+    print ''
+
+    status.message = 'Pass 4 of 4: Encoding QNAMEs...'
+    columns_data = []
+    for column in columns: columns_data.append( numpy.zeros(status.total,column['dtype']) )
+    for entries_read,qname in enumerate(qname_reader(args.input,prefix,suffix)):
+        for column_idx,column_data in enumerate(qname):
+            if columns[column_idx]['format'] == 'mapping':                                      columns_data[column_idx][entries_read] = bisect.bisect_left(columns[column_idx]['map'],column_data)
+            elif columns[column_idx]['format'] == 'integers' and columns[column_idx]['offset']: columns_data[column_idx][entries_read] = int(column_data) - columns[column_idx]['min']
+            elif columns[column_idx]['format'] == 'integers':                                   columns_data[column_idx][entries_read] = int(column_data)
+            elif columns[column_idx]['format'] == 'strings':                                    columns_data[column_idx][entries_read] = column_data
+    for idx,column in enumerate(columns): write_out(columns_data[idx],column['name']+'.temp')
+    del columns_data
+
+    # System memory at this point should be 0.
+    # Is wasteful to write everything to disk to later bring it back in, but for --test ing it's better. In the future could just order the actual encoding.
+
+    def run_mix(sorted_on,raw_tables,test):
+        if test: test = {'sorted_on':sorted_on,'raw_tables':raw_tables}
+        if sorted_on in ['DNA','QUAL']:
+            not_sorted_on = 'DNA' if sorted_on == 'QUAL' else 'QUAL'
+            sort_order = encode_dna_qual(False, read_in(    sorted_on+'.temp'),     sorted_on, True if     sorted_on in raw_tables else False,test) # Final false makes a sort_order
+            encode_dna_qual(        sort_order, read_in(not_sorted_on+'.temp'), not_sorted_on, True if not_sorted_on in raw_tables else False,test) # Use the above sort_order
+            encode_qname(sort_order, True if 'QNAME' in raw_tables else False,test)
+        elif sorted_on == 'QNAME':
+            sort_order = encode_qname(False,True if 'QNAME' in raw_tables else False,test)
+            encode_dna_qual(sort_order,read_in('DNA.temp'),   'DNA', True if 'DNA'  in raw_tables else False,test)
+            encode_dna_qual(sort_order,read_in('QUAL.temp'), 'QUAL', True if 'QUAL' in raw_tables else False,test)
+        else:
+            encode_qname(None, True if 'QNAME' in raw_tables else False,test)
+            encode_dna_qual(None,read_in('DNA.temp'),   'DNA', True if 'DNA'  in raw_tables else False,test)
+            encode_dna_qual(None,read_in('QUAL.temp'), 'QUAL', True if 'QUAL' in raw_tables else False,test)
+
+        if test:
+            total_size = 0
+            for key,value in test.items():
+                if key.startswith('QNAME') or key.endswith('key'): total_size += value
+                elif key.startswith('DNA') or key.startswith('QUAL'): total_size += value[0]
+            test['total_size'] = total_size
+        return test
+        # Add totals to test_results here.
+
+    def encode_dna_qual(sort_order,table,table_name,raw,test): # If a truthy value is provided for sort_order, will sort output with it. If False, will sort and return a sort_order. If None, no sorting done.
+        if raw:
+            if type(sort_order) is NoneType:
+                if test: test[table_name+'.raw'] = test_patterns(table)
+                else: write_pattern(table,table_name+'.raw')
+            else:
+                if type(sort_order) is bool:
+                    original_dtype = table.dtype            # pypy currently
+                    table.dtype = 'V' + str(len(table[0]))  # needs this
+                    sort_order = numpy.argsort(table)       # to be
+                    table.dtype = original_dtype            # quick :(
+                if test: test[table_name+'.raw'] = test_patterns(table[sort_order])
+                else:    write_pattern(table[sort_order],table_name+'.raw')
+        else:
+            original_dtype = table.dtype                         # pypy currently
+            table.dtype = 'V' + str(len(table[0]))               # needs this
+            table,key = numpy.unique(table, return_inverse=True) # to be
+            table.dtype = original_dtype                         # quick :(
+            if type(sort_order) is NoneType:
+                if test: test[table_name+'.key'] = compressed_size(key)
+                else: write_out(key,table_name+'.key')
+            else:
+                if type(sort_order) is bool: sort_order = numpy.argsort(key)
+                if test: test[table_name+'.key'] = compressed_size(key[sort_order])
+                else: write_out(key[sort_order],table_name+'.key')
+            table.dtype = original_dtype
+            if test: test[table_name] = test_patterns(table)
+            else:                            write_pattern(table,table_name)
+        return sort_order
+
+    def encode_qname(sort_order,raw,test): # If sort_order is False, will generate a sort_order. If sort_order is something truthy, will be used to sort. If None, no sorting.
+        columns_data = []
+        for column in columns:
+            columns_data.append(read_in(column['name']+'.temp'))
+        if raw:
+            if type(sort_order) is bool:
+                common_dtype_columns_data = numpy.stack(columns_data, axis=1)
+                #for column_idx in range(len(common_dtype_columns_data[0])):
+                #    common_dtype_columns_data = common_dtype_columns_data[common_dtype_columns_data[:,2].argsort(kind='mergesort')] # There's got to be an easier way to do this...
+                common_dtype_columns_data.dtype = ','.join(common_dtype_columns_data.shape[1]*[str(common_dtype_columns_data.dtype)]) # Given the dtype of the largest array automatically during stack()
+                sort_order = numpy.argsort(common_dtype_columns_data,axis=0)
+                sort_order.shape = sort_order.shape[0] 
+                del common_dtype_columns_data
+            if type(sort_order) is numpy.ndarray:
+                for idx,column in enumerate(columns):
+                    if test: test[column['name']+'.raw'] = compressed_size(columns_data[idx][sort_order])
+                    else: write_out(columns_data[idx][sort_order],column['name']+'.raw')
+            else:
+                for idx,column in enumerate(columns):
+
+                    if test: test[column['name']+'.raw'] = compressed_size(columns_data[idx])
+                    else: write_out(columns_data[idx],column['name']+'.raw')
+        else:
+            common_dtype_columns_data = numpy.stack(columns_data, axis=1)
+            common_dtype_columns_data.dtype = ','.join(common_dtype_columns_data.shape[1]*[str(common_dtype_columns_data.dtype)]) # Given the dtype of the largest array automatically during stack()
+            common_dtype_columns_data, columns_key = numpy.unique(common_dtype_columns_data, return_inverse=True)
+            if type(sort_order) is bool: sort_order = numpy.argsort(columns_key)
+            if type(sort_order) is numpy.ndarray:
+                if test: test['QNAME.key'] = compressed_size(columns_key[sort_order])
+                else: write_out(columns_key[sort_order],'QNAME.key')
+                del columns_key
+            else:
+                if test: test['QNAME.key'] = compressed_size(columns_key)
+                else: write_out(columns_key,'QNAME.key')
+                del columns_key
+            old_shape = len(common_dtype_columns_data), len(common_dtype_columns_data[0])
+            common_dtype_columns_data.dtype = common_dtype_columns_data.dtype[0]
+            common_dtype_columns_data.shape = old_shape
+            for idx,column in enumerate(columns):
+                if test: test[column['name']] = compressed_size(common_dtype_columns_data[:,idx].astype(column['dtype']))
+                else: write_out(common_dtype_columns_data[:,idx].astype(column['dtype']),column['name'])
+            del common_dtype_columns_data
+        del columns_data
+        if type(sort_order) is numpy.ndarray: return sort_order
+
+    if args.test:
+        all_results = []
+        for raw_tables in [('DNA','QUAL','QNAME'),('DNA','QUAL'),('QUAL','QNAME'),('DNA','QNAME'),('DNA'),('QUAL'),('QNAME'),(None,)]:
+            for to_sort in ['DNA','QUAL','QNAME',None]:
+                all_results.append(run_mix(to_sort,raw_tables,True))
+        for result in sorted(all_results, key=lambda k: k['total_size']):
+            print 'Size:',str(result['total_size']).rjust(10),
+            print ' Sorted:',str(result['sorted_on']).ljust(5),
+            print ' Raw Tables:',str(result['raw_tables']).ljust(20),
+            del result['total_size'],result['sorted_on'],result['raw_tables']
+            for key,value in result.items():
+                print str(key),':',str(value),
+            print ''
+        run_mix(args.sort,args.raw,False)
+    else:
+        run_mix(args.sort,args.raw,False)
+    print 'All done!'
+    exit()
+
+    # Add to below the pattern, sort, raw, etc.
 
     decoder_ring = {
         'base_distribution':        base_graph,
@@ -701,81 +754,61 @@ else:
             f.write(json.dumps(decoder_ring,indent=4))
         print 'success!\n'
 
-        status.message = 'Step 4 of 4: Encoding QNAME with optimized settings.'
-        columns_data = []
-        for column in columns: columns_data.append( numpy.zeros(decoder_ring['reads'],column['dtype']) )
-        for entries_read,qname in enumerate(qname_reader(args.input,prefix,suffix)):
-            for column_idx,column_data in enumerate(qname):
-                if columns[column_idx]['format'] == 'mapping':                                      columns_data[column_idx][entries_read] = bisect.bisect_left(columns[column_idx]['map'],column_data)
-                elif columns[column_idx]['format'] == 'integers' and columns[column_idx]['offset']: columns_data[column_idx][entries_read] = int(column_data) - columns[column_idx]['min']
-                elif columns[column_idx]['format'] == 'integers':                                   columns_data[column_idx][entries_read] = int(column_data)
-                elif columns[column_idx]['format'] == 'strings':                                    columns_data[column_idx][entries_read] = column_data
 
-        if args.test or 'QNAME' in args.raw:
-            if args.test: test_sizes['QNAME.raw'] = 0; print ''
-            for idx,column in enumerate(columns):
-                write_out(columns_data[idx],column['name']+'.raw')
-                if args.test:
-                    if args.compressor: this_size = compressed_size(columns_data[idx])
-                    else:               this_size = columns_data[idx].size
-                    print column['name']+'.raw :',this_size
-                    test_sizes['QNAME.raw'] += this_size
-            if args.test: print 'Total QNAME.raw :',test_sizes['QNAME.raw'],'\n'
 
-        if args.test or 'QNAME' not in args.raw:
-            # Now we just check how many QNAMEs were repeated
-            common_dtype_columns_data = numpy.stack(columns_data, axis=1)
-            common_dtype_columns_data.dtype = ','.join(common_dtype_columns_data.shape[1]*[str(common_dtype_columns_data.dtype)]) # Given the dtype of the largest array automatically during stack()
-            print 'Sorting QNAMEs.'
-            common_dtype_columns_data, columns_key = numpy.unique(common_dtype_columns_data, return_inverse=True)
-            old_shape = len(common_dtype_columns_data), len(common_dtype_columns_data[0])
-            common_dtype_columns_data.dtype = common_dtype_columns_data.dtype[0]
-            common_dtype_columns_data.shape = old_shape
-            for column_idx in range(len(columns)):
-                columns_data[column_idx] = common_dtype_columns_data[:,column_idx].astype(columns[column_idx]['dtype'])
 
-            if args.test: test_sizes['QNAME'] = 0; print ''
-            for idx,column in enumerate(columns):
-                write_out(columns_data[idx],column['name'])
-                if args.test:
-                    if args.compressor: this_size = compressed_size(columns_data[idx])
-                    else:               this_size = columns_data[idx].size
-                    print column['name']+' :',this_size
-                    test_sizes['QNAME'] += this_size
-            if args.test: print 'Total QNAME :',test_sizes['QNAME'],
 
-            write_out(columns_key,'QNAME.key')
+
+
+
+
+        print 'Finished sorting qualities',status.split_time(),'sorting DNA...'
+
+        dna_array = read_in('DNA.temp')
+        os.remove(os.path.join(temp_directory,'DNA.temp'))
+
+        if 'DNA' in args.raw or args.test:
             if args.test:
-                if args.compressor: test_sizes['QNAME.key'] = compressed_size(columns_key)
-                else:               test_sizes['QNAME.key'] = columns_key.size
-            if args.test: print '( plus',test_sizes['QNAME.key'],'for QNAME.key!)','\n'
-            del columns_key
+                print 'DNA.raw:'
+                test_sizes['DNA.raw'] = test_patterns(dna_array)
+                args.pattern[0] = test_sizes['DNA.raw'][1]
+                print ''
+            write_pattern(dna_array,'DNA.raw')
 
-            if len(columns_data[0]) != status.total:
-                if len(columns_data[0])*2 != status.total:
-                    print 'INFO: Of the',status.total,'reads in the file,',status.total-len(columns_data[0]),'contained duplicated read names/headers/QNAMEs.'
-                    print '      What is unusual is that this number is not half the file (which might make sense for paired-end sequencing).'
-                    print '      Thus, there may be a mistake in your QNAME formatting, however, it is not my place to judge - encoding will be totally uneffected.'
-                else: 
-                    print 'INFO: This file looks like it contains properly-formatted paired end data.'
-            else:
-                print 'INFO: This file looks like it contains single-end sequencing data, or is 1 of 2 paired-end files.'
-                print '      If that is NOT the case, then there may be a mistake in your QNAME formatting. Otherwise everything is fine :)'
+        if 'DNA' not in args.raw or args.test:
+            original_dtype = dna_array.dtype
+            dna_array.dtype = 'V' + str(len(dna_array[0])) # pypy is much faster if the row type is just a single void, and not a whole bunch of columns.
+            dna_array,dna_key = numpy.unique(dna_array, return_inverse=True)
+            write_out(dna_key,'DNA.key')
+            if args.test:
+                if args.compressor: test_sizes['DNA.key'] = compressed_size(dna_key)
+                else: test_sizes['DNA.key'] = dna_key.size
+            del dna_key
+            dna_array.dtype = original_dtype
+            if args.test:
+                print 'DNA:'
+                test_sizes['DNA'] = test_patterns(dna_array)
+                args.pattern[0] = test_sizes['DNA'][1]
+                print ''
+            write_pattern(dna_array,'DNA')
+        del dna_array
+        print 'Encoded DNA and Qualities written to disk!\n',status.split_time()
 
-        print '\nEncoded QNAMEs written to disk!',status.split_time()
+
+
+##############
+
+
+
+
+
+
 
         test_raw = []
         test_pattern = []
 
         if args.test:
-            #print 'Bonus Step: Reordering reads to optimize compression.'
-            #master = numpy.stack([ read_in('DNA.key'), read_in('QNAME.key'), read_in('QUAL.key') ], axis=1)
-            #master = master[master[:,2].argsort(kind='quicksort')]
-            #master = master[master[:,1].argsort(kind='mergesort')]
-            #master = master[master[:,0].argsort(kind='mergesort')]
-            #write_out(master,'master.key') # This should be rotated or individual columns again.
-
-            if test_sizes['QUAL.raw'][0] - (test_sizes['QUAL'][0] + test_sizes['QUAL.key']) > 0:
+            if test_sizes['QUAL.raw'][0] < (test_sizes['QUAL'][0] + test_sizes['QUAL.key']):
                 #os.remove(os.path.join(temp_directory,'QUAL'))
                 #os.remove(os.path.join(temp_directory,'QUAL.key'))
                 test_raw.append('QUAL')
@@ -784,7 +817,7 @@ else:
                 #os.remove(os.path.join(temp_directory,'QUAL.raw'))
                 test_pattern.append(test_sizes['QUAL'][1])
 
-            if test_sizes['DNA.raw'][0] - (test_sizes['DNA'][0] + test_sizes['DNA.key']) > 0:
+            if test_sizes['DNA.raw'][0] < (test_sizes['DNA'][0] + test_sizes['DNA.key']):
                 #os.remove(os.path.join(temp_directory,'DNA'))
                 #os.remove(os.path.join(temp_directory,'DNA.key'))
                 test_raw.append('DNA')
@@ -793,7 +826,7 @@ else:
                 #os.remove(os.path.join(temp_directory,'DNA.raw'))
                 test_pattern.append(test_sizes['DNA'][1])
 
-            if test_sizes['QNAME.raw'] - (test_sizes['QNAME'] + test_sizes['QNAME.key']) > 0:
+            if test_sizes['QNAME.raw'] < (test_sizes['QNAME'] + test_sizes['QNAME.key']):
                 for idx,column in enumerate(columns): os.remove(os.path.join(temp_directory,column['name']))
                 #os.remove(os.path.join(temp_directory,'QNAME.key'))
                 test_raw.append('QNAME')
@@ -801,8 +834,8 @@ else:
                 for idx,column in enumerate(columns): os.remove(os.path.join(temp_directory,column['name']+'.raw'))
 
             print 'TEST COMPLETE: The following options were found to be optimal:'
-            print '    --raw',' '.join(test_raw),' --pattern',' '.join(test_pattern)
-            print '\n',test_sizes
+            if len(test_raw): print '    --raw',' '.join(test_raw),
+            print ' --pattern',' '.join(test_pattern),'\n'
 
         try:
             with tarfile.open(os.path.join(temp_directory,'temp.uq'), mode='w') as temp_out:
@@ -814,6 +847,20 @@ else:
             print 'ERROR: There was an error taking the encoded data and putting it all in a single tar file:'
             print '      ',e
             print '       You might be able to still do it manually. Take a look inside',temp_directory
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
