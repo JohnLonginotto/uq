@@ -39,7 +39,7 @@ There is one important fact that need to be understood about compression - good 
 ###--pattern: 
   ```
   There are modifications one can make not to the logical layout of the data (like --raw), 
-  but the way in which bytes are   physically written to disk, such as writing/reading all 
+  but the way in which bytes are physically written to disk, such as writing/reading all 
   rows backwards, writing data in column order and not row order, etc. Because there are 
   so many combinations of transformations, these are simply reffered to by ids: "0.1", "0.2", 
   "1.1", "1.2", "2.1", "2.2", "3.1", and "3.2". No one expects anyone to know what these 
@@ -93,7 +93,7 @@ There is one important fact that need to be understood about compression - good 
   - a 50% increase in file size! Typically the quality encodings have bits to spare, as there are so
   many quality scores. For this reason its beneficial to create a new, unique quality score for Ns,
   where possible (has to be only 1 quality score for the N, otherwise it doesn't look like an N to uQ,
-  as uQ will encode anything FASTQish reliably). Long story short, --notricks will prevent this trickery. 
+  as uQ will encode anything FASTQish reliably). Long story short, --notricks will prevent this trickery.
   This will benefit users not looking for optimum file size reduction, but 'cleaner' datasets that can 
   be operated on plainly. Note, the tricks are used by default, but it will not change the file after 
   decoding.
@@ -106,24 +106,26 @@ There is one important fact that need to be understood about compression - good 
 
 ###--input:
 ```
-  FASTQ files in. Unfortunately, this will have to be a file and not a pipe, as the file has 
-  to be read multiple times to tune the encoder to the data and prevent issues that might result 
-  in an undecodable file 10 years from now.
+  FASTQ files in when encoding, uQ files in when decoding. Unfortunately, this will have to be a 
+  file and not a pipe, as the file has to be read multiple times to tune the encoder to the data
+  and prevent issues that might result in an undecodable file 10 years from now.
 ```
 
 ###--output: 
 ```
-  Path to output.
+  Path to output. If no output specified, default when making uQ files is to append ".uQ" to the end
+  of the original file name, and when decompressing uQ files back to FASTQ, default is to print to
+  the standard out/terminal.
 ```
 
 ###--decode:
 ```
-  This simply reverses the encoding operation. I have somehow manged to write a decoder that is slower
-  than an encoder, which is quite impressive. I'm sure if there is any interest in uQ files, this will 
-  be improved over time.
+  This simply reverses the encoding operation. No parameters need to be specified, it's all stored in the
+  config file in the uQ tar file. I have somehow manged to write a decoder that is slower than the encoder,
+  which is quite impressive. I'm sure if there is any interest in uQ files, the speed will be improved over time.
 ```
 
-# How to (actually) use uQ:
+# How to *(actually)* use uQ:
 
 If you wish to encode a very large file and have no idea what sort/raw/pattern to use, you can --test on a smaller sample:
 head -400000 ./rep3.fastq > ./sample.fastq
