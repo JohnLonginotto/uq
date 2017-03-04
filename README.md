@@ -1,6 +1,9 @@
 # uQ - binary FASTQ
 
-`uQ is a tool to convert FASTQ files into a smaller, easily compressable binary format, and back again.`
+```
+  uQ is a tool to convert FASTQ files into a smaller, easily compressable binary format, and back again.
+  See bottom to skip blurb and see results.
+```
 
 # Why use uQ?
 
@@ -383,6 +386,9 @@ Size (compressed)    Sort:    Raw Tables:                 Raw stats:
           3161281    None     ('QUAL',)                   QNAME.key : 276753 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519 DNA.key : 273497 DNA : [755261, '0.2'] QUAL.raw : [1701845, '1.1']
           3220216    None     (None,)                     QNAME.key : 276753 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519 DNA.key : 273497 DNA : [755261, '0.2'] QUAL.key : 275277 QUAL : [1485503, '2.2']
 
+  Parameters found to be the best for this data type:
+      --sort QUAL --raw DNA QUAL QNAME --pattern 0.2 2.2
+
   Writing final config...
   Archiving results and cleaning up temp directory...
   All Done! :)
@@ -400,5 +406,3 @@ Which outputs much the same as above (but more data for the metrics) and a file 
 Adding the results from `python uq.py --input ./rep3.fastq --test --compressor lzma`, gives us the following for this rep3 dataset (ENCODE ENCFF000BUQ.fastq - rep3.fastq.gz is the file as downloaded from the ENCODE).
 
 ![alt text](http://i.imgur.com/X6lEGWx.png "File size of the same dataset in FASTQ and uQ encoding, and gzip/lzma/fqzcomp compression")
-[img][/img]
-
