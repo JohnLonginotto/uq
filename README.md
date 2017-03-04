@@ -2,7 +2,7 @@
 
 ```
   uQ is a tool to convert FASTQ files into a smaller, easily compressable binary format, and back again.
-  See bottom to skip blurb and see results.
+  To see results, skip to the bottom.
 ```
 
 # Why use uQ?
@@ -13,7 +13,7 @@
 
 # How to use uQ:
 
-There is one important fact that need to be understood about compression - good compression depends on the compressor, the amount of information stored in the file, and how that information is physically arranged on disk before compression. As such, there are plenty of non-linear variables at play, and the only way to find out what is best is to try everything (or have a good guess based on some similar data). The variables uQ currently accepts include:
+Good compression depends on the compressor, the amount of information stored in the file, and how that information is physically arranged on disk before compression. As such, there are plenty of non-linear variables at play, and the only way to know what is best is to try everything (or have a good guess based on some similar data). The variables uQ currently accepts include:
 
 ###--sort:
 ```
@@ -33,38 +33,40 @@ There is one important fact that need to be understood about compression - good 
   [ T, T, C, C, G, T, C, C, A ]   ----/   [ T, T, C, C, G, T, C, C, A ]
   [ G, G, G, G, G, T, C, C, A ]
 
-  Thus, raw prevents this behaviour, and instead the data is stored as a single table with no index. Sorting still depends on --sort. How desirable this is depends on the nature of your data (how 
-  repetitive it is), and what in-memory analyses you are planning to do. Valid values are 
+  Thus, --raw prevents this behaviour, and instead the data is stored as a single table with no index.
+  Sorting still depends on --sort. How desirable this is depends on the nature of your data 
+  (how repetitive it is), and what in-memory analyses you are planning to do. Valid values are 
   "DNA", "QUAL", "QNAME", and "None", and more than one value can be specified.
 ```
 
 ###--pattern: 
   ```
-  There are modifications one can make not to the logical layout of the data (like --raw), 
-  but the way in which bytes are physically written to disk, such as writing/reading all 
+  While --raw changes the logical layout of the data, --pattern changes the physical layout,
+  i.e. the way in which bytes are physically written to disk, such as writing/reading all 
   rows backwards, writing data in column order and not row order, etc. Because there are 
   so many combinations of transformations, these are simply reffered to by ids: "0.1", "0.2", 
-  "1.1", "1.2", "2.1", "2.2", "3.1", and "3.2". No one expects anyone to know what these 
+  "1.1", "1.2", "2.1", "2.2", "3.1", and "3.2". No one is expected to remember what these 
   numbers mean, because...
   ```
 
 ###--test:
 ```
   ...when --test is specified, all possible values for the above settings are tried 
-  (excluding any that you have locked-in by specifying them explicitly as well) and the
-  best possible combination for your compressor is emitted, with details on the less-good 
-  arrangments. This can be done on a small sample of the data if you wish (for speed), but 
-  getting a random-enough sample is left to the user for now. To be totally honest, I just
-  run --test on the whole file for one type of data set, say an H3K9me3 ChIP, which after 
-  some time returns the best possible file encoding, and then I use those same --pattern/--raw
-  --sort values for all other H3K9me3 datasets. Do make sure to test every sample kind
-  individually though, as results generated for an RNA-Seq will be different to a WGBS, etc.
+  (excluding any that you have locked-in by specifying them explicitly) and the
+  best possible combination for your compressor is written out, with details on the less-good 
+  arrangments printed to the terminal. This can be done on a small sample of the data 
+  if you wish (for speed), but getting a random-enough sample is left to the user for now. 
+  To be totally honest, I usually just run --test on the whole file for one type of data set,
+  say an H3K9me3 ChIP, which after some time returns the best possible file encoding, and 
+  then I use those same --pattern/--raw/--sort values for all other H3K9me3 datasets.
+  Do make sure to test every sample kind individually though, as results generated for an 
+  RNA-Seq will be different to ChIP-Seq which is different to WGBS, etc.
 ```
 
 ###--compressor:
 ```
   How does uQ know which arrangements of the above options compresses the best? It compresses the data 
-  with a compressor of your choosing with the --compressor option of course! What a time to be alive. 
+  with a compressor of your choosing with the --compressor option. This is the path or alias, i.e. "gzip".
   Compressor is simply subprocessed, data is fed to the stdin and it's stdout is piped to "wc -c" to 
   count bytes. The code can be modified to work with compression programs that have to read/write files 
   and not from stdin by uncommenting a few lines. Note that if you do not specify a --compressor, uQ 
