@@ -406,6 +406,6 @@ Which outputs much the same as above (but more data for the metrics) and a file 
 #Results
 
 Adding the results from `python uq.py --input ./rep3.fastq --test --compressor lzma`, gives us the following for this rep3 dataset (ENCODE ENCFF000BUQ.fastq - rep3.fastq.gz is the file as downloaded from the ENCODE).
-Standard LZMA applied with no extra options. For fqzcomp and DSRC, all the maximum lossless compression modes were used. DSRC decompressed to be byte-for-byte identical to input fastq. fqzcomp was a little lossy in that quality scores for N were lost. uQ kept the quality scores for N, but did changed the order of entries to be sorted on QUAL.
+Standard LZMA applied with -e. For fqzcomp and DSRC, all the maximum lossless compression modes were used. DSRC decompressed to be byte-for-byte identical to input fastq. fqzcomp was a little lossy in that quality scores for N were lost. uQ kept the quality scores for N, but did changed the order of entries to be sorted on QUAL.
 
 ![alt text](http://i.imgur.com/CPKb1Li.png "File size of the same dataset in FASTQ and uQ encoding, and gzip/lzma/fqzcomp compression")
