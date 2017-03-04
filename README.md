@@ -6,11 +6,11 @@
 
 1. Being a binary format, not only does a uQ file take up considerably less space than a FASTQ file before compression, but a uQ file will often compress down to half the size of a FASTQ file **after compression**. Win win - and you don't have to rely on some no-longer-supported, one-off compression program for long term storage. Use whatever compressor you're comfortable with, as uQ will work with your compressor to define a encoding scheme specific to your data and your compressor.
 
-2. Being a *structured* binary format, data in a uQ file can be read and operated on much quicker than a FASTQ file. The data is really nothing more than a collection of Numpy arrays (in NPY format) all tar'd together into a single file (with a json config file). This means one could store a very large number of uQ files, all in-memory, and perform certain analyses very quickly. If uQ turns out to be more popular, an API can be made much like pysam to interact with uQ files quickly. At present, very few speed optimisations have been made to the encoder/decoder (and Python is not really the right tool for the encoding job anyway). If speed is your goal, you may wish to forgo specifying a compressor to uQ, and just optimise for the smallest possible in-memory representation.
+2. Being a *structured* binary format, data in a uQ file can be read and operated on much quicker than a FASTQ file. The data is really nothing more than a collection of Numpy arrays (in NPY format) all tar'd together into a single file (with a json config file). This means one could store a very large number of uQ files, all in-memory, and perform certain analyses very quickly.
 
 # How to use uQ:
 
-There is one important fact that need to be understood about compression - good compression depends on the compressor, the amount of information stored in the file, and how that information, the raw data, is layed out on disk. As such, there are plenty of non-linear variables at play, and the only way to find out what is best is to try everything (or have a good guess based on some similar data!). The variables uQ currently accepts include:
+There is one important fact that need to be understood about compression - good compression depends on the compressor, the amount of information stored in the file, and how that information is physically arranged on disk before compression. As such, there are plenty of non-linear variables at play, and the only way to find out what is best is to try everything (or have a good guess based on some similar data). The variables uQ currently accepts include:
 
 ###--sort:
 ```
@@ -30,8 +30,7 @@ There is one important fact that need to be understood about compression - good 
   [ T, T, C, C, G, T, C, C, A ]   ----/   [ T, T, C, C, G, T, C, C, A ]
   [ G, G, G, G, G, T, C, C, A ]
 
-  Thus, raw prevents this behaviour, and instead the data is stored as a single, sorted table
-  with duplicates and no index. How desirable this is depends on the nature of your data (how 
+  Thus, raw prevents this behaviour, and instead the data is stored as a single table with no index. Sorting still depends on --sort. How desirable this is depends on the nature of your data (how 
   repetitive it is), and what in-memory analyses you are planning to do. Valid values are 
   "DNA", "QUAL", "QNAME", and "None", and more than one value can be specified.
 ```
@@ -48,15 +47,15 @@ There is one important fact that need to be understood about compression - good 
 
 ###--test:
 ```
-  Test! When --test is specified, all possible values for the above settings are tried 
+  ...when --test is specified, all possible values for the above settings are tried 
   (excluding any that you have locked-in by specifying them explicitly as well) and the
   best possible combination for your compressor is emitted, with details on the less-good 
   arrangments. This can be done on a small sample of the data if you wish (for speed), but 
   getting a random-enough sample is left to the user for now. To be totally honest, I just
-  run --test on the whole file for one data set, say an H3K9me3 ChIP with read length X and
-  quality scores Y, with Z amount of repetitive data, which emits the best possible file 
-  after some time, and then I use those values for all the other H3K9me3 datasets as they are
-  typically very consistent, and very different between datasets.
+  run --test on the whole file for one type of data set, say an H3K9me3 ChIP, which after 
+  some time returns the best possible file encoding, and then I use those same --pattern/--raw
+  --sort values for all other H3K9me3 datasets. Do make sure to test every sample kind
+  individually though, as results generated for an RNA-Seq will be different to a WGBS, etc.
 ```
 
 ###--compressor:
