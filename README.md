@@ -398,5 +398,8 @@ Which outputs much the same as above (but more data for the metrics) and a file 
 
 #Results
 
-Adding the results from `python uq.py --input ./rep3.fastq --test --compressor lzma`, which is this author's best (in a reasonable time frame) result for this file, gives us the following for this rep3 dataset (ENCODE ENCFF000BUQ.fastq - rep3.fastq.gz is the file as downloaded from the ENCODE).
+Adding the results from `python uq.py --input ./rep3.fastq --test --compressor lzma`, gives us the following for this rep3 dataset (ENCODE ENCFF000BUQ.fastq - rep3.fastq.gz is the file as downloaded from the ENCODE).
+
+![alt text](http://i.imgur.com/X6lEGWx.png "File size of the same dataset in FASTQ and uQ encoding, and gzip/lzma/fqzcomp compression")
+[img][/img]
 
