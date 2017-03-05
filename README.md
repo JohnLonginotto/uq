@@ -70,7 +70,7 @@ Good compression depends on the compressor, the amount of information stored in 
   Compressor is simply subprocessed, data is fed to the stdin and it's stdout is piped to "wc -c" to 
   count bytes. The code can be modified to work with compression programs that have to read/write files 
   and not from stdin by uncommenting a few lines. Note that if you do not specify a --compressor, uQ 
-  will try to optimised for smallest uncompressed filesize, and the results will be very different to
+  will try to optimise for smallest uncompressed filesize, and the results will be very different to
   what a compressor would likely give.
 ```
 
