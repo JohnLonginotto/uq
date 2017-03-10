@@ -14,6 +14,8 @@ import argparse
 import itertools
 import subprocess
 import collections
+import cffi
+ffi = cffi.FFI()
 
 parser = argparse.ArgumentParser(     description="This tool converys FASTQ files to microq (uQ) files and back.")
 parser.add_argument("-i", "--input",  required=True,                      help='Required. Input FASTQ/uQ file path.')
@@ -87,51 +89,152 @@ if not args.decode:
         def total_time(self): return time.time() - self.time
     status = init_status(args.input)
 
-    ## This class does the actual encoding of the DNA and QUAL values. In an idea world the two would be seperated to reduce memory consumption and simplify the
-    ## code, however as large performance benefits exist if "N" bases are stored as the most popular base in the file, but with a unique quality value, encoding
-    ## of DNA and QUAL is best one simultaniously. For now. Could also write both (+QNAME) straight to disk, then load it back in...?
-    class encoder:
-        def this(self):
-            self.status.current = 0
-            with open(self.file_path,'rb') as f:
-                for row in xrange(self.total_reads):
-                    try:
-                        next(f)
-                        dna = next(f)[:-1]
-                        next(f)
-                        quals = next(f)[:-1]
-                        #if 'N' in dna: continue
-                    except StopIteration: break
-                    temp_dna = self.variable_read_lengths  #   either 1 or 0
-                    temp_qual = self.variable_read_lengths # for True or False
-                    for base,quality in itertools.izip(dna,quals):
-                        try:
-                            temp_dna = (temp_dna << self.bits_per_base) + self.bases.index(base)
-                            temp_qual = (temp_qual << self.bits_per_quality) + self.qualities.index(quality)
-                        except ValueError:
-                            temp_dna = (temp_dna << self.bits_per_base) + self.N_base
-                            temp_qual = (temp_qual << self.bits_per_quality) + self.N_qual[base]    # This line is why qualities and DNA are analysed at the same time. Really, this should be more generic.
-                    self.dna_array[row] = tuple((temp_dna >> x) & 255 for x in self.dna_magic)
-                    self.qual_array[row] = tuple((temp_qual >> x) & 255 for x in self.quality_magic)
-                    self.status.update()
-            return (self.dna_array,self.qual_array)
+    ## This function does the actual encoding of the DNA and QUAL values of fixed length. In an idea world the two would be seperated to reduce memory 
+    ## consumption and simplify the code, however as large performance benefits exist if "N" bases are stored as a regular base, but with a unique 
+    ## quality value, encoding of DNA and QUAL is best done simultaniously for now. Could also write both (+QNAME) straight to disk, then load it back in...?
+    def encoder_fixed(total_reads,bases,qualities,N_qual,dna_bytes_per_row,quality_bytes_per_row,status,file_path,bits_per_base,bits_per_quality):
+        with open(file_path,'rb') as f:
+            status.current = 0
+            ffi.cdef("""
+                uint8_t *malloc(size_t size);
+                uint8_t free(void *ptr);
+            """)
+            lib = ffi.dlopen(None)
 
-        def __init__(self,total_reads,bases,qualities,N_qual,dna_bytes_per_row,quality_bytes_per_row,variable_read_lengths,status,file_path,bits_per_base,bits_per_quality):
-            self.status = status
-            self.file_path = file_path
-            self.dna_magic = range( (dna_bytes_per_row-1) * 8,-8,-8)
-            self.quality_magic = range( (quality_bytes_per_row-1) * 8,-8,-8)
-            self.total_reads = total_reads
-            self.bases = ''.join(bases)
-            self.qualities = ''.join(qualities)
-            self.variable_read_lengths = int(variable_read_lengths)
-            self.bits_per_base = bits_per_base
-            self.bits_per_quality = bits_per_quality
-            self.N_base = 0 # The most common base (with presumably the smallest post-compression code)
-            self.N_qual = N_qual
-            self.dna_array  = numpy.zeros(total_reads,numpy.dtype(','.join(    dna_bytes_per_row *['uint8'])))
-            self.qual_array = numpy.zeros(total_reads,numpy.dtype(','.join(quality_bytes_per_row *['uint8'])))
-            self.more_dna_magic = range( dna_bits - self.bits_per_base ,-self.bits_per_base,-self.bits_per_base)
+            ## Old way - simple but I can't manually free the memory later, which is a pity as that would be nessecary for other projects.
+            #dna_array = ffi.new("uint8_t["+str(total_reads)+"]["+str(dna_bytes_per_row)+"]")
+            #qual_array = ffi.new("uint8_t["+str(total_reads)+"]["+str(quality_bytes_per_row)+"]")
+
+            ## New way - more complicated/manual, but allows me to delete the array whenever i want, and not wait around for the Garbage Collector to identify it's not needed any more and remove it.
+            dna_pointer = lib.malloc(total_reads*dna_bytes_per_row)
+            qual_pointer = lib.malloc(total_reads*quality_bytes_per_row)
+            if dna_pointer is None or qual_pointer is None: print "ERROR: Your system does not have the required amount of memory to store all of the DNA/QUALITY scores :("; exit()
+            dna_array = ffi.cast("uint8_t["+str(total_reads)+"]["+str(dna_bytes_per_row)+"]", dna_pointer) # Cast the flat array to an array of arrays, also defining its size, type, etc.
+            qual_array = ffi.cast("uint8_t["+str(total_reads)+"]["+str(quality_bytes_per_row)+"]", qual_pointer) # Cast the flat array to an array of arrays, also defining its size, type, etc.
+
+            bases = ''.join(bases)
+            qualities = ''.join(qualities)
+            N_base = 0
+
+            for row in xrange(total_reads):
+                try:
+                    next(f)
+                    dna = next(f)[-2::-1]   # Store sequence backwards, omitting last newline character
+                    next(f)
+                    quals = next(f)[-2::-1] # Store sequence backwards, omitting last newline character
+                    #if 'N' in dna: continue
+                except StopIteration: break
+                column             = 0
+                temp_dna           = 0
+                temp_qual          = 0
+                dna_bits_done      = 0
+                qual_bits_done     = 0
+                dna_byte_position  = dna_bytes_per_row -1
+                qual_byte_position = quality_bytes_per_row -1
+                for base in range(len(dna)):
+                    try:
+                        temp_dna  += bases.index(dna[base])       << dna_bits_done
+                        temp_qual += qualities.index(quals[base]) << qual_bits_done
+                    except ValueError:
+                        temp_dna  += N_base                       << dna_bits_done
+                        temp_qual += N_qual[dna[base]]            << qual_bits_done  # This line is why qualities and DNA are analysed at the same time.
+
+                    dna_bits_done += bits_per_base
+                    if dna_bits_done >= 8:
+                        dna_bits_done -= 8
+                        dna_array[row][dna_byte_position] = temp_dna & 255
+                        temp_dna >>= 8
+                        dna_byte_position -= 1
+
+                    qual_bits_done += bits_per_quality
+                    if qual_bits_done >= 8:
+                        qual_bits_done -= 8
+                        qual_array[row][qual_byte_position] = temp_qual & 255
+                        temp_qual >>= 8
+                        qual_byte_position -= 1
+
+                dna_array[row][dna_byte_position] = temp_dna
+                qual_array[row][qual_byte_position] = temp_qual
+                status.update()
+
+        ## We send back both the numpy representation of the array, and the raw pointer (to delete the array manually if we wish), and the functions to free it.
+        dna_array = numpy.asarray( ffi.buffer(dna_array))
+        dna_array.shape = (total_reads,dna_bytes_per_row)
+        qual_array = numpy.asarray( ffi.buffer(qual_array))
+        qual_array.shape = (total_reads,quality_bytes_per_row)
+        return ((dna_array,dna_pointer),(qual_array,qual_pointer),lib)
+
+    ## This function is exactly the same as the above, except comments have been removed and a small block of code at the end of every row has been added.
+    ## This was done as it results in a small speed improvement for fixed_length encodings not having that block around wasting cycles.
+    ## This adds a '1' to the most significant bit of the binary encoding, telling the decoder to ignore all bits before the 1, and the 1 itself. But ofcourse
+    ## It takes 1 extra bit of binary to store variable length things in this way.
+    def encoder_variable(total_reads,bases,qualities,N_qual,dna_bytes_per_row,quality_bytes_per_row,status,file_path,bits_per_base,bits_per_quality):
+        with open(file_path,'rb') as f:
+            status.current = 0
+            ffi = cffi.FFI()
+            ffi.cdef("""
+                uint8_t *malloc(size_t size);
+                uint8_t free(void *ptr);
+            """)
+            lib=ffi.dlopen(None)
+            dna_pointer = lib.malloc(total_reads*dna_bytes_per_row)
+            qual_pointer = lib.malloc(total_reads*quality_bytes_per_row)
+            if dna_pointer is None or qual_pointer is None: print "ERROR: Your system does not have the required amount of memory to store all of the DNA/QUALITY scores :("; exit()
+            dna_array = ffi.cast("uint8_t["+str(total_reads)+"]["+str(dna_bytes_per_row)+"]", dna_pointer)
+            qual_array = ffi.cast("uint8_t["+str(total_reads)+"]["+str(quality_bytes_per_row)+"]", qual_pointer)
+            bases = ''.join(bases)
+            qualities = ''.join(qualities)
+            N_base = 0
+            for row in xrange(total_reads):
+                try:
+                    next(f)
+                    dna   = next(f)[-2::-1]
+                    next(f)
+                    quals = next(f)[-2::-1]
+                except StopIteration: break
+                column             = 0
+                temp_dna           = 0
+                temp_qual          = 0
+                dna_bits_done      = 0
+                qual_bits_done     = 0
+                dna_byte_position  = dna_bytes_per_row -1
+                qual_byte_position = quality_bytes_per_row -1
+                for base in range(len(dna)):
+                    try:
+                        temp_dna  += bases.index(dna[base])       << dna_bits_done
+                        temp_qual += qualities.index(quals[base]) << qual_bits_done
+                    except ValueError:
+                        temp_dna  += N_base                       << dna_bits_done
+                        temp_qual += N_qual[dna[base]]            << qual_bits_done
+                    dna_bits_done += bits_per_base
+                    if dna_bits_done  >= 8:
+                        dna_bits_done -= 8
+                        dna_array[row][dna_byte_position] = temp_dna & 255
+                        temp_dna >>= 8
+                        dna_byte_position -= 1
+                    qual_bits_done += bits_per_quality
+                    if qual_bits_done  >= 8:
+                        qual_bits_done -= 8
+                        qual_array[row][qual_byte_position] = temp_qual & 255
+                        temp_qual >>= 8
+                        qual_byte_position -= 1
+
+                # Add the '1' as the most significant bit:
+                dna_array[row][dna_byte_position]   = temp_dna  + (variable_read_lengths << (dna_bits_done))
+                qual_array[row][qual_byte_position] = temp_qual + (variable_read_lengths << (qual_bits_done))
+                # As dna_byte_position/qual_byte_position may not be zero, memory not written to needs to be zero'd out (I use malloc not calloc):
+                while dna_byte_position  != 0: dna_byte_position  -= 1; dna_array[row][dna_byte_position]   = 0
+                while qual_byte_position != 0: qual_byte_position -= 1; qual_array[row][qual_byte_position] = 0
+                status.update()
+
+        ## We send back both the numpy representation of the array, and the raw pointer (to delete the array manually if we wish), and the functions to free it.
+        dna_array = numpy.asarray( ffi.buffer(dna_array))
+        dna_array.shape = (total_reads,dna_bytes_per_row)
+        qual_array = numpy.asarray( ffi.buffer(qual_array))
+        qual_array.shape = (total_reads,quality_bytes_per_row)
+        return ((dna_array,dna_pointer),(qual_array,qual_pointer),lib)
+
+
 
     ## Two helper functions that convert numpy arrays from standard arrays to structured arrays and back. It's really just changing metadata.
     def struct_to_std(ar):
@@ -146,7 +249,6 @@ if not args.decode:
 
     ## Depending on the user defined or optimal --pattern for the DNA and QUAL tables, how the bytes of those tables are arranged on disk (the pattern) is determined below:
     def write_pattern(table,filename):
-        struct_to_std(table)
         if args.pattern is None: pattern = '0.1'; args.pattern = ['0.1','0.1']
         elif filename.startswith('DNA'):  pattern = args.pattern[0]
         elif filename.startswith('QUAL'): pattern = args.pattern[1]
@@ -160,7 +262,6 @@ if not args.decode:
             if pattern == '1.2': numpy.save( f, numpy.asfortranarray(    numpy.rot90(table,1) ))
             if pattern == '2.2': numpy.save( f, numpy.asfortranarray(    numpy.rot90(table,2) ))
             if pattern == '3.2': numpy.save( f, numpy.asfortranarray(    numpy.rot90(table,3) ))
-        std_to_struct(table)
 
     ## Write out without the ".npy" file name extension at the end.
     def write_out(table,filename):
@@ -189,16 +290,17 @@ if not args.decode:
         else: error("ERROR: This should never happen!")
 
         results = []
-        struct_to_std(table)
+        #struct_to_std(table)
         if pattern in ('0.1',None): results.append([ compressed_size(numpy.ascontiguousarray(table)               ), '0.1' ])
-        if pattern in ('1.1',None): results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,1))), '1.1' ])
         if pattern in ('2.1',None): results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,2))), '2.1' ])
-        if pattern in ('3.1',None): results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,3))), '3.1' ])
         if pattern in ('0.2',None): results.append([ compressed_size(numpy.asfortranarray(table)                  ), '0.2' ])
-        if pattern in ('1.2',None): results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,1))   ), '1.2' ])
         if pattern in ('2.2',None): results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,2))   ), '2.2' ])
-        if pattern in ('3.2',None): results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,3))   ), '3.2' ])
-        std_to_struct(table)
+
+        if pattern in ('1.1',None): results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,1))), '1.1' ]) # This
+        if pattern in ('3.1',None): results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,3))), '3.1' ]) # This
+        if pattern in ('1.2',None): results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,1))   ), '1.2' ]) # This
+        if pattern in ('3.2',None): results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,3))   ), '3.2' ]) # This
+        #std_to_struct(table)
         return sorted(results)[0]
 
 
@@ -568,25 +670,36 @@ if not args.decode:
 
     ## Here the DNA/QUALs are actually encoded and written to disk. In an ideal world, encoded data would be immediately written to disk, and not stored in memory first.
     status.message = 'Pass 3 of 4: Encoding DNA and Quality scores...'
-    encode = encoder(status.total,dna_bases,quals,N_qual,dna_columns_needed,qual_columns_needed,variable_read_lengths,status,args.input,bits_per_base,bits_per_quality)
-    arrays = encode.this()
-    write_out(arrays[0],'DNA.temp')  # Free up
-    write_out(arrays[1],'QUAL.temp') # system
-    del arrays                       # memory
+
+    if variable_read_lengths: arrays = encoder_variable(status.total,dna_bases,quals,N_qual,dna_columns_needed,qual_columns_needed,status,args.input,bits_per_base,bits_per_quality)
+    else:                     arrays = encoder_fixed(status.total,dna_bases,quals,N_qual,dna_columns_needed,qual_columns_needed,status,args.input,bits_per_base,bits_per_quality)
+
+    write_out(arrays[0][0],'DNA.temp')  # Free
+    write_out(arrays[1][0],'QUAL.temp') # up
+    arrays[2].free(arrays[0][1])        # system
+    arrays[2].free(arrays[1][1])        # memory
+    del arrays                          # manually
     print ''
 
     ## Here the QNAMEs are parsed and encoded. What a time to be alive.
     status.message = 'Pass 4 of 4: Encoding QNAMEs...'
-    columns_data = []
-    for column in columns: columns_data.append( numpy.zeros(status.total,column['dtype']) )
-    for entries_read,qname in enumerate(qname_reader(args.input,prefix,suffix)):
-        for column_idx,column_data in enumerate(qname):
-            if columns[column_idx]['format'] == 'mapping':                                      columns_data[column_idx][entries_read] = bisect.bisect_left(columns[column_idx]['map'],column_data)
-            elif columns[column_idx]['format'] == 'integers' and columns[column_idx]['offset']: columns_data[column_idx][entries_read] = int(column_data) - columns[column_idx]['min']
-            elif columns[column_idx]['format'] == 'integers':                                   columns_data[column_idx][entries_read] = int(column_data)
-            elif columns[column_idx]['format'] == 'strings':                                    columns_data[column_idx][entries_read] = column_data
-    for idx,column in enumerate(columns): write_out(columns_data[idx],column['name']+'.temp')
-    del columns_data
+    columns_list = []
+
+    for column in columns: columns_list.append( ffi.new(column['dtype']+"_t["+str(status.total)+"]") )
+    for row,qname in enumerate(qname_reader(args.input,prefix,suffix)):
+        for column,data in enumerate(qname):
+            if   columns[column]['format'] == 'mapping' : columns_list[column][row] = bisect.bisect_left(columns[column]['map'],data)
+            elif columns[column]['format'] == 'integers' and columns[column]['offset']: columns_list[column][row] = int(data) - columns[column]['min']  # slows things down if not needed? if columns[column]['offset']: ...
+            elif columns[column]['format'] == 'integers': columns_list[column][row] = int(data)
+            elif columns[column]['format'] == 'strings' : columns_list[column][row] = data
+
+    for idx,column in enumerate(columns):
+        columns_list[idx] = numpy.asarray(  ffi.buffer(columns_list[idx]))
+        # The following messing around is because numpy doesnt understand ffi.new properly, always assumed dtype is uint8, so we have to go via void to restore.
+        columns_list[idx].dtype = 'V'+str(numpy.dtype(columns[idx]['dtype']).itemsize)
+        columns_list[idx].dtype = columns[idx]['dtype']
+        write_out(columns_list[idx],column['name']+'.temp')
+    del columns_list
     print ''
 
     ## This function runs a "mix", which is a specific combination of --sort and --raw, and perhaps others one day like delta encodings or --pad. It's reused when doing --test with different parameters.
@@ -624,7 +737,8 @@ if not args.decode:
             else:
                 original_dtype = table.dtype            # pypy needs this
                 table.dtype = 'V' + str(len(table[0]))  # to be quick :(
-                if sort_order is False: sort_order = numpy.argsort(table)
+                if sort_order is False: sort_order = numpy.argsort(table,axis=0)
+                sort_order.shape = sort_order.shape[0]
                 table = table[sort_order]
                 table.dtype = original_dtype
                 if test: test[table_name+'.raw'] = test_patterns(table,table_name)
@@ -633,6 +747,7 @@ if not args.decode:
             original_dtype = table.dtype                         # pypy currently
             table.dtype = 'V' + str(len(table[0]))               # needs this
             table,key = numpy.unique(table, return_inverse=True) # to be
+            table.shape = (len(table),1)
             table.dtype = original_dtype                         # quick :(
             key = key.astype(numpy.min_scalar_type(max(key))) ######################################################## This adds considerable time to the running of the program, because pypy hasn't impliemnted it properly yet.
             if sort_order is None:
@@ -656,7 +771,9 @@ if not args.decode:
             if sort_order is False:
                 #common_dtype_columns_data = numpy.stack(columns_data,axis=1) # Used to use this but it seems quite a few people don't have it in their numpy just yet. Below works fine though.
                 common_dtype_columns_data = numpy.dstack(columns_data)[0] # Stack makes a table where the dtype of every column is the same as the largest column of the inputs. This will be fixed later when writing to disk.
+
                 common_dtype_columns_data.dtype = ','.join(common_dtype_columns_data.shape[1]*[str(common_dtype_columns_data.dtype)]) # Structifys the list so rows are sorted, not each columns individually...
+
                 sort_order = numpy.argsort(common_dtype_columns_data,axis=0)
                 sort_order.shape = sort_order.shape[0] 
                 del common_dtype_columns_data
@@ -669,8 +786,13 @@ if not args.decode:
                     if test: test[column['name']+'.raw'] = compressed_size(columns_data[idx])
                     else: write_out(columns_data[idx],column['name']+'.raw')
         else:
+            #common_dtype_columns_data = common_dtype_columns_data[common_dtype_columns_data[:,len(common_dtype_columns_data[0])-1].argsort()] # First sort does not need to be stable/mergesort.
+            #for column_idx in range(len(common_dtype_columns_data[0])-2,-1,-1):
+            #    common_dtype_columns_data = common_dtype_columns_data[common_dtype_columns_data[:,column_idx].argsort(kind='mergesort')] # First sort doesn't need to be stable.
             common_dtype_columns_data = numpy.dstack(columns_data)[0]
+
             common_dtype_columns_data.dtype = ','.join(common_dtype_columns_data.shape[1]*[str(common_dtype_columns_data.dtype)])
+
             common_dtype_columns_data, columns_key = numpy.unique(common_dtype_columns_data, return_inverse=True)
             columns_key = columns_key.astype(numpy.min_scalar_type(max(columns_key))) ######################################################## This adds considerable time to the running of the program in pypy, because pypy hasn't impliemnted it properly yet.
             if sort_order is False: sort_order = numpy.argsort(columns_key)
@@ -700,6 +822,7 @@ if not args.decode:
         print 'Time:                       Sort:      Raw Tables:                      Patterns:'
         status.split_time()
         for raw_tables in [('DNA','QUAL','QNAME'),('DNA','QUAL'),('QUAL','QNAME'),('DNA','QNAME'),('DNA',),('QUAL',),('QNAME',),(None,)] if args.raw is None else [args.raw]:
+            if args.compressor is None: args.sort = (None,)
             for to_sort in ['DNA','QUAL','QNAME',None] if args.sort is None else [args.sort]:
                 all_results.append(run_mix(to_sort,raw_tables,True))
                 print status.split_time().ljust(27),str(to_sort).ljust(10),str(tuple(raw_tables)).ljust(32),'All' if args.raw is None else str(args.pattern)
@@ -722,6 +845,11 @@ if not args.decode:
             for key,value in result.items():
                 print str(key),':',str(value),
             print ''
+        print 'Parameters found to be the best for this data type:\n  ',
+        if args.sort is not None and args.sort != (None,): print ' --sort',args.sort,
+        if args.raw is not None: print ' --raw',' '.join(args.raw),
+        if args.pattern is not None: print ' --pattern',' '.join(args.pattern),
+        print ''
 
     ## Whether the user --test'd or not, we run another mix without testing using either the user supplied settings, or the best settings from the --test.
     ## Note encoding takes so much more time than rotating/patterning/sorting data that although this is not the most efficient way of doing things, it will do just fine for now.
@@ -817,7 +945,7 @@ else:
     else: error('ERROR: No QNAME data was found in this uQ file?!')
     '''
 
-    # Check everything we need is in the config file by reassigning it. This also speeds things up for Cpython users.
+    # Check everything we need is in the config file by reassigning it. This also speeds things up a little for CPython users.
     bases = config['bases']
     N_qual = config['N_qual']
     prefix = config['QNAME_prefix']
@@ -897,18 +1025,14 @@ def convert_qname(numpy_array,prefix,suffix,columnType):
 '''
 Developer To Dos / Notes:
 
-1) Try delta encoding with numpy.diff
+1) Try encoding QNAMEs in strings (and support strings if mapping fails)
 
-2) Try encoding QNAMEs in strings (and support strings if mapping fails)
-
-3) Change the array to a super-fast CFFI array a la ACGTrie. Alternatively try the python3 int().to_bytes() and numpy void dtype.
-
-4) To reduce the final output filesize further, i would like to write all reads containing Ns to a separate file, then once the unique/sorted
+2) To reduce the final output filesize further, i would like to write all reads containing Ns to a separate file, then once the unique/sorted
    list is created (for DNA/QUAL), try replacing the N with any other letter to get a fragment that is already in the unique dataset. Since the list
    is sorted, we can use a binary intersect and figure that out near-instantaniously, so it's reasonable. If no match is found, replace Ns with the most
    common base, which is what is currently done. This is part of the LOSSLESS part of the program, so really it would benefit all.
 
-5) DNA could actually be stored in ACGTrie format, rather than a struct. Idx points to the end row in the trie (and working backwards gets you the DNA)
+3) DNA could actually be stored in ACGTrie format, rather than a table. Idx points to the end row in the trie (and working backwards gets you the DNA)
    Same could work for the QUAL too.
 
 6) There are no repeated QNAMEs (or few) so key method isn't working so well. Should make a key per column after sort/unique'ing columns individually, then even sort/unique the stack of those keys.
