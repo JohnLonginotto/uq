@@ -441,8 +441,8 @@ if not args.decode:
     print '    - DNA sequences contained the following characters:',' '.join(sorted(dna_bases)),'(' + str(len(dna_bases)) + ' in total)'
     print '    - There distribution is:'
     for base in dna_bases:
-        percentage = (base_graph[base]/total_bases)*50
-        print '     ',base,'|'+('#'*int(percentage)).ljust(50)+'|', ('%.3f'%percentage).rjust(7)+'%', str(base_graph[base]).rjust(12)
+        percentage = (base_graph[base]/total_bases)*100
+        print '     ',base,'|'+('#'*int(percentage/2)).ljust(50)+'|', ('%.3f'%percentage).rjust(7)+'%', str(base_graph[base]).rjust(12)
 
     # Decide if special N encoding will be used.
     N_qual = {}
@@ -491,15 +491,15 @@ if not args.decode:
     for base,result in static_qualities.items():
         print '  [Breakdown for "'+str(base)+'"]'
         for qual in sorted(static_qualities[base]):
-            percentage = (static_qualities[base][qual]/float(base_graph[base]))*50
-            print '     ',qual,'|'+('#'*int(percentage)).ljust(50)+'|', ('%.3f'%percentage).rjust(7)+'%', str(static_qualities[base][qual]).rjust(12)
+            percentage = (static_qualities[base][qual]/float(base_graph[base]))*100
+            print '     ',qual,'|'+('#'*int(percentage/2)).ljust(50)+'|', ('%.3f'%percentage).rjust(7)+'%', str(static_qualities[base][qual]).rjust(12)
         print ''
     print '  [Total distribution]'
     print '    - the following values were seen as quality scores:',' '.join(sorted(quals)),'(' + str(len(quals)) + ' in total)'
     print '    - There distribution is:'
     for qual in quals:
-        percentage = (qual_graph[qual]/total_bases)*50
-        print '     ',qual,'|'+('#'*int(percentage)).ljust(50)+'|', ('%.3f'%percentage).rjust(7)+'%', str(qual_graph[qual]).rjust(12)
+        percentage = (qual_graph[qual]/total_bases)*100
+        print '     ',qual,'|'+('#'*int(percentage/2)).ljust(50)+'|', ('%.3f'%percentage).rjust(7)+'%', str(qual_graph[qual]).rjust(12)
     if   total_quals <= 4:                    bits_per_quality = 2
     elif total_quals <= 8   and not args.pad: bits_per_quality = 3
     elif total_quals <= 16:                   bits_per_quality = 4
