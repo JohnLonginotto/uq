@@ -6,11 +6,11 @@
   but if provided the path to a compressing program, uQ can test different 
   settings to optimise the binary encoding for your specific compressor and
   your specific data. This means one can use whatever compression algorithm
-  they like, and be confident they are getting a very small output. 
+  they like, and be confident they are getting a very small output.
 
-LZMA+uQ will typically give the smallest filesize of any FASTQ compressor,
-particularly for files with long/complex QNAMEs (as this data is delimited,
-encoded, and stored in a table, which aids access and compression).
+  LZMA+uQ will typically give the smallest filesize of any FASTQ compressor,
+  particularly for files with long/complex QNAMEs (as this data is delimited,
+  encoded, and stored in a table, which aids access and compression).
 ```
 
 # Why use uQ?
