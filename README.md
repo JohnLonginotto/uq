@@ -143,12 +143,12 @@ uq.py --input sample.fastq --test
 
 Outputs:
 ```
-(pypy) John Laptop:Desktop John$ python uq.py --input sample.fastq --test --compressor gzip
-Temporary directory: /var/folders/3t/qctkm9xn6zv871cvwy6pw31m0000gn/T/tmpAo529j
-Pass 1 of 4: First pass through file to find optimal/safe encoding strategy. (98.30%)
-Finished analysing file! (0.00661060015361 minutes)
-    - total reads: 100000
-    - total bases: 3600000
+(pypy) Johns-MacBook:Desktop John$ python uq.py --input /Users/John/Desktop/rep3.fastq --test --compressor pigz
+Temporary directory: /var/folders/3t/qctkm9xn6zv871cvwy6pw31m0000gn/T/tmpfEggaT
+Pass 1 of 4: First pass through file to find optimal/safe encoding strategy. (99.93%)
+Finished analysing file! (0.743970485528 minutes)
+    - total reads: 9852944
+    - total bases: 354705984
 
 QNAME Analysis:
     - all QNAMEs prefixed with: @SL-XBG_1_FC30CT9AAXX:8:
@@ -157,249 +157,248 @@ QNAME Analysis:
 DNA Analysis:
     - DNA sequences contained the following characters: A C G N T (5 in total)
     - There distribution is:
-      T |##############################                                                                      |  30.064%      1082294
-      A |###########################                                                                         |  27.341%       984265
-      G |####################                                                                                |  20.578%       740814
-      C |####################                                                                                |  20.547%       739681
-      N |#                                                                                                   |   1.471%        52946
+      A |############                                      |  25.406%     90116798
+      C |#############                                     |  26.154%     92768093
+      G |#########                                         |  19.033%     67512877
+      N |#                                                 |   2.535%      8990390
+      T |#############                                     |  26.872%     95317826
     - this means we will store each letter of DNA in 3 bits.
     - all DNA sequences are 36 bases long
     - therefore, as 108 bits must be used to store the DNA for each sequence, we will use 14 bytes per unique DNA sequence.
 
 QUAL Analysis:
   [Breakdown for "G"]
-      $ |                                                                                                    |   0.595%         4408
-      % |###                                                                                                 |   3.373%        24991
-      & |#####                                                                                               |   5.177%        38354
-      ( |##                                                                                                  |   2.744%        20330
-      ) |######                                                                                              |   6.942%        51428
-      * |                                                                                                    |   0.214%         1584
-      + |#########                                                                                           |   9.773%        72403
-      , |#                                                                                                   |   1.043%         7730
-      - |                                                                                                    |   0.113%          838
-      . |########                                                                                            |   8.143%        60324
-      / |####                                                                                                |   4.448%        32954
-      0 |                                                                                                    |   0.001%           10
-      1 |###                                                                                                 |   3.939%        29177
-      2 |                                                                                                    |   0.240%         1781
-      3 |########                                                                                            |   8.454%        62626
-      4 |#                                                                                                   |   1.388%        10284
-      5 |#                                                                                                   |   1.688%        12505
-      6 |####                                                                                                |   4.924%        36477
-      7 |#######                                                                                             |   7.407%        54872
-      8 |#                                                                                                   |   1.350%         9999
-      9 |###                                                                                                 |   3.522%        26094
-      : |######                                                                                              |   6.002%        44465
-      ; |##                                                                                                  |   2.642%        19575
-      < |###############                                                                                     |  15.681%       116169
-      = |                                                                                                    |   0.194%         1435
-      A |                                                                                                    |   0.000%            1
+      $ |                                                  |   0.456%       308036
+      % |#                                                 |   3.385%      2285609
+      & |##                                                |   5.083%      3431647
+      ( |#                                                 |   2.932%      1979456
+      ) |####                                              |   8.007%      5405472
+      * |                                                  |   0.203%       136927
+      + |#####                                             |  10.314%      6963235
+      , |                                                  |   1.457%       983831
+      - |                                                  |   0.127%        85592
+      . |###                                               |   7.962%      5375579
+      / |#                                                 |   3.517%      2374618
+      0 |                                                  |   0.000%          291
+      1 |#                                                 |   3.842%      2594021
+      2 |                                                  |   0.478%       322432
+      3 |####                                              |   8.669%      5852521
+      4 |                                                  |   1.359%       917338
+      5 |#                                                 |   2.075%      1401087
+      6 |##                                                |   4.676%      3156908
+      7 |###                                               |   6.382%      4308856
+      8 |                                                  |   1.875%      1265747
+      9 |#                                                 |   2.552%      1722737
+      : |###                                               |   6.490%      4381867
+      ; |                                                  |   1.755%      1184962
+      < |########                                          |  16.308%     11010049
+      = |                                                  |   0.095%        64030
+      A |                                                  |   0.000%           29
 
   [Breakdown for "A"]
-      $ |                                                                                                    |   0.480%         4729
-      % |###                                                                                                 |   3.199%        31491
-      & |#####                                                                                               |   5.459%        53734
-      ( |###                                                                                                 |   3.353%        33007
-      ) |#######                                                                                             |   7.207%        70934
-      * |                                                                                                    |   0.183%         1804
-      + |##############                                                                                      |  14.229%       140047
-      , |                                                                                                    |   0.572%         5626
-      - |                                                                                                    |   0.096%          943
-      . |#######                                                                                             |   7.300%        71847
-      / |###########                                                                                         |  11.924%       117368
-      0 |                                                                                                    |   0.001%            6
-      1 |#                                                                                                   |   1.836%        18076
-      2 |                                                                                                    |   0.080%          789
-      3 |###############                                                                                     |  15.467%       152241
-      4 |                                                                                                    |   0.336%         3304
-      5 |#                                                                                                   |   1.881%        18516
-      6 |###                                                                                                 |   3.310%        32575
-      7 |##########                                                                                          |  10.586%       104197
-      8 |                                                                                                    |   0.247%         2430
-      9 |###                                                                                                 |   3.341%        32883
-      : |###                                                                                                 |   3.708%        36496
-      ; |#                                                                                                   |   1.477%        14542
-      < |###                                                                                                 |   3.604%        35472
-      = |                                                                                                    |   0.119%         1169
-      A |                                                                                                    |   0.004%           39
+      $ |                                                  |   0.408%       367726
+      % |#                                                 |   3.083%      2778268
+      & |##                                                |   5.094%      4590233
+      ( |#                                                 |   3.022%      2723077
+      ) |####                                              |   8.291%      7471607
+      * |                                                  |   0.225%       203200
+      + |#######                                           |  15.059%     13570635
+      , |                                                  |   1.178%      1061225
+      - |                                                  |   0.097%        87742
+      . |####                                              |   9.422%      8490983
+      / |###                                               |   7.844%      7068486
+      0 |                                                  |   0.000%          447
+      1 |#                                                 |   2.915%      2627267
+      2 |                                                  |   0.226%       203328
+      3 |######                                            |  12.108%     10910930
+      4 |                                                  |   0.501%       451869
+      5 |#                                                 |   2.597%      2339894
+      6 |#                                                 |   3.897%      3512185
+      7 |####                                              |   8.511%      7670236
+      8 |                                                  |   0.729%       657133
+      9 |                                                  |   1.883%      1697209
+      : |##                                                |   4.383%      3950221
+      ; |                                                  |   1.072%       965744
+      < |###                                               |   7.382%      6652453
+      = |                                                  |   0.071%        63793
+      A |                                                  |   0.001%          907
 
   [Breakdown for "T"]
-      $ |                                                                                                    |   0.499%         5403
-      % |##                                                                                                  |   2.930%        31707
-      & |####                                                                                                |   4.459%        48261
-      ( |##                                                                                                  |   2.381%        25765
-      ) |######                                                                                              |   6.185%        66940
-      * |                                                                                                    |   0.205%         2219
-      + |#########                                                                                           |   9.602%       103923
-      , |#                                                                                                   |   1.058%        11447
-      - |                                                                                                    |   0.245%         2647
-      . |#######                                                                                             |   7.229%        78235
-      / |#####                                                                                               |   5.350%        57900
-      0 |                                                                                                    |   0.005%           58
-      1 |###                                                                                                 |   3.487%        37742
-      2 |                                                                                                    |   0.382%         4129
-      3 |##########                                                                                          |  10.117%       109497
-      4 |#                                                                                                   |   1.545%        16720
-      5 |##                                                                                                  |   2.343%        25355
-      6 |###                                                                                                 |   3.613%        39106
-      7 |#########                                                                                           |   9.978%       107994
-      8 |                                                                                                    |   0.571%         6183
-      9 |###                                                                                                 |   3.536%        38271
-      : |#######                                                                                             |   7.500%        81177
-      ; |####                                                                                                |   4.589%        49671
-      < |###########                                                                                         |  11.935%       129172
-      = |                                                                                                    |   0.255%         2765
-      A |                                                                                                    |   0.001%            7
+      $ |                                                  |   0.415%       395230
+      % |#                                                 |   2.907%      2770617
+      & |##                                                |   4.588%      4373481
+      ( |#                                                 |   2.695%      2569069
+      ) |###                                               |   7.507%      7155051
+      * |                                                  |   0.220%       209925
+      + |#####                                             |  10.418%      9930407
+      , |                                                  |   1.395%      1329887
+      - |                                                  |   0.227%       216063
+      . |###                                               |   7.507%      7155625
+      / |##                                                |   4.359%      4154636
+      0 |                                                  |   0.002%         1474
+      1 |#                                                 |   3.526%      3361251
+      2 |                                                  |   0.517%       493228
+      3 |####                                              |   9.858%      9396297
+      4 |                                                  |   1.277%      1217337
+      5 |#                                                 |   2.652%      2527413
+      6 |#                                                 |   3.659%      3487553
+      7 |####                                              |   8.204%      7819513
+      8 |                                                  |   0.982%       935838
+      9 |                                                  |   1.985%      1891951
+      : |###                                               |   7.766%      7402697
+      ; |#                                                 |   2.828%      2695321
+      < |#######                                           |  14.384%     13710745
+      = |                                                  |   0.123%       116930
+      A |                                                  |   0.000%          287
 
   [Breakdown for "C"]
-      $ |                                                                                                    |   0.540%         3997
-      % |####                                                                                                |   4.071%        30112
-      & |######                                                                                              |   6.663%        49282
-      ( |###                                                                                                 |   3.902%        28861
-      ) |########                                                                                            |   8.338%        61671
-      * |                                                                                                    |   0.227%         1682
-      + |##############                                                                                      |  14.084%       104175
-      , |                                                                                                    |   0.731%         5406
-      - |                                                                                                    |   0.143%         1059
-      . |######                                                                                              |   6.885%        50927
-      / |##########                                                                                          |  10.246%        75789
-      0 |                                                                                                    |   0.001%            6
-      1 |#                                                                                                   |   1.904%        14087
-      2 |                                                                                                    |   0.152%         1128
-      3 |############                                                                                        |  12.332%        91219
-      4 |                                                                                                    |   0.477%         3527
-      5 |#                                                                                                   |   1.656%        12248
-      6 |##                                                                                                  |   2.335%        17275
-      7 |##########                                                                                          |  10.423%        77095
-      8 |                                                                                                    |   0.173%         1279
-      9 |###                                                                                                 |   3.292%        24351
-      : |####                                                                                                |   4.757%        35188
-      ; |#                                                                                                   |   1.983%        14665
-      < |####                                                                                                |   4.616%        34143
-      = |                                                                                                    |   0.068%          500
-      A |                                                                                                    |   0.001%            9
+      $ |                                                  |   0.418%       387846
+      % |#                                                 |   3.597%      3336522
+      & |##                                                |   5.812%      5392143
+      ( |#                                                 |   3.538%      3282477
+      ) |####                                              |   8.387%      7780511
+      * |                                                  |   0.288%       267131
+      + |######                                            |  13.802%     12803864
+      , |                                                  |   1.584%      1469195
+      - |                                                  |   0.204%       189194
+      . |####                                              |   8.548%      7930263
+      / |###                                               |   6.604%      6126651
+      0 |                                                  |   0.001%          756
+      1 |#                                                 |   2.782%      2580984
+      2 |                                                  |   0.392%       363830
+      3 |####                                              |   9.969%      9247691
+      4 |                                                  |   0.740%       686197
+      5 |#                                                 |   2.492%      2312161
+      6 |#                                                 |   2.470%      2290990
+      7 |###                                               |   7.746%      7185716
+      8 |                                                  |   0.518%       480712
+      9 |                                                  |   1.392%      1291054
+      : |###                                               |   7.222%      6699892
+      ; |#                                                 |   2.207%      2047474
+      < |####                                              |   9.229%      8561396
+      = |                                                  |   0.057%        52857
+      A |                                                  |   0.001%          586
 
   [Breakdown for "N"]
-      $ |###                                                                                                 |   3.651%         1933
-      % |################################################################################################    |  96.349%        51013
+      $ |#                                                 |   2.220%       199560
+      % |################################################  |  97.780%      8790830
 
   [Total distribution]
     - the following values were seen as quality scores: $ % & ( ) * + , - . / 0 1 2 3 4 5 6 7 8 9 : ; < = A (26 in total)
     - There distribution is:
-      + |###########                                                                                         |  11.682%       420548
-      3 |###########                                                                                         |  11.544%       415583
-      7 |#########                                                                                           |   9.560%       344158
-      < |########                                                                                            |   8.749%       314956
-      / |#######                                                                                             |   7.889%       284011
-      . |#######                                                                                             |   7.259%       261333
-      ) |######                                                                                              |   6.971%       250973
-      : |#####                                                                                               |   5.481%       197326
-      & |#####                                                                                               |   5.268%       189631
-      % |####                                                                                                |   4.703%       169314
-      6 |###                                                                                                 |   3.484%       125433
-      9 |###                                                                                                 |   3.378%       121599
-      ( |##                                                                                                  |   2.999%       107963
-      1 |##                                                                                                  |   2.752%        99082
-      ; |##                                                                                                  |   2.735%        98453
-      5 |#                                                                                                   |   1.906%        68624
-      4 |                                                                                                    |   0.940%        33835
-      , |                                                                                                    |   0.839%        30209
-      $ |                                                                                                    |   0.569%        20470
-      8 |                                                                                                    |   0.553%        19891
-      2 |                                                                                                    |   0.217%         7827
-      * |                                                                                                    |   0.202%         7289
-      = |                                                                                                    |   0.163%         5869
-      - |                                                                                                    |   0.152%         5487
-      0 |                                                                                                    |   0.002%           80
-      A |                                                                                                    |   0.002%           56
+      $ |                                                  |   0.468%      1658398
+      % |##                                                |   5.628%     19961846
+      & |##                                                |   5.015%     17787504
+      ( |#                                                 |   2.975%     10554079
+      ) |###                                               |   7.841%     27812641
+      * |                                                  |   0.230%       817183
+      + |######                                            |  12.198%     43268141
+      , |                                                  |   1.366%      4844138
+      - |                                                  |   0.163%       578591
+      . |####                                              |   8.162%     28952450
+      / |##                                                |   5.561%     19724391
+      0 |                                                  |   0.001%         2968
+      1 |#                                                 |   3.147%     11163523
+      2 |                                                  |   0.390%      1382818
+      3 |####                                              |   9.982%     35407439
+      4 |                                                  |   0.923%      3272741
+      5 |#                                                 |   2.419%      8580555
+      6 |#                                                 |   3.509%     12447636
+      7 |###                                               |   7.608%     26984321
+      8 |                                                  |   0.941%      3339430
+      9 |                                                  |   1.862%      6602951
+      : |###                                               |   6.325%     22434677
+      ; |                                                  |   1.943%      6893501
+      < |#####                                             |  11.259%     39934643
+      = |                                                  |   0.084%       297610
+      A |                                                  |   0.001%         1809
     - this means we will store each quality symbol in 5 bits.
     - therefore, as 180 bits must be used to store the qualities for each sequence, we will use 23 bytes per unique quality sequence.
 
-Pass 2 of 4: Now QNAME delimiters are known, QNAMEs are being analysed. (98.30%)
-Optimal encoding method for delimited data in QNAME determined! (0.00494136810303 minutes)
+Pass 2 of 4: Now QNAME delimiters are known, QNAMEs are being analysed. (99.93%)
+Optimal encoding method for delimited data in QNAME determined! (0.370465902487 minutes)
     - Column 3 is type integers stored as uint8
     - Column 3 is type integers stored as uint16
     - Column 3 is type integers stored as uint16
 
-Pass 3 of 4: Encoding DNA and Quality scores... (98.30%)
-Pass 4 of 4: Encoding QNAMEs... (98.30%)
+Pass 3 of 4: Encoding DNA and Quality scores... (99.93%)
+Pass 4 of 4: Encoding QNAMEs... (99.93%)
 
 Starting tests...
 Time:                       Sort:      Raw Tables:                      Patterns:
-(0.0623526493708 minutes)   DNA        ('DNA', 'QUAL', 'QNAME')         All
-(0.0601833820343 minutes)   QUAL       ('DNA', 'QUAL', 'QNAME')         All
-(0.072601834933 minutes)    QNAME      ('DNA', 'QUAL', 'QNAME')         All
-(0.0634381532669 minutes)   None       ('DNA', 'QUAL', 'QNAME')         All
-(0.0788209994634 minutes)   DNA        ('DNA', 'QUAL')                  All
-(0.0796946843465 minutes)   QUAL       ('DNA', 'QUAL')                  All
-(0.082397600015 minutes)    QNAME      ('DNA', 'QUAL')                  All
-(0.0825541973114 minutes)   None       ('DNA', 'QUAL')                  All
-(0.0675637483597 minutes)   DNA        ('QUAL', 'QNAME')                All
-(0.0637503345807 minutes)   QUAL       ('QUAL', 'QNAME')                All
-(0.0769990324974 minutes)   QNAME      ('QUAL', 'QNAME')                All
-(0.0671203494072 minutes)   None       ('QUAL', 'QNAME')                All
-(0.0639218171438 minutes)   DNA        ('DNA', 'QNAME')                 All
-(0.0672367493312 minutes)   QUAL       ('DNA', 'QNAME')                 All
-(0.0754310687383 minutes)   QNAME      ('DNA', 'QNAME')                 All
-(0.068313852946 minutes)    None       ('DNA', 'QNAME')                 All
-(0.0819273670514 minutes)   DNA        ('DNA',)                         All
-(0.085627647241 minutes)    QUAL       ('DNA',)                         All
-(0.0848837812742 minutes)   QNAME      ('DNA',)                         All
-(0.0848152001699 minutes)   None       ('DNA',)                         All
-(0.0869405666987 minutes)   DNA        ('QUAL',)                        All
-(0.0826579332352 minutes)   QUAL       ('QUAL',)                        All
-(0.0877449154854 minutes)   QNAME      ('QUAL',)                        All
-(0.0856060345968 minutes)   None       ('QUAL',)                        All
-(0.0703301469485 minutes)   DNA        ('QNAME',)                       All
-(0.0703383008639 minutes)   QUAL       ('QNAME',)                       All
-(0.0802314162254 minutes)   QNAME      ('QNAME',)                       All
-(0.0705535173416 minutes)   None       ('QNAME',)                       All
-(0.0906253139178 minutes)   DNA        (None,)                          All
-(0.0890094319979 minutes)   QUAL       (None,)                          All
-(0.0900878508886 minutes)   QNAME      (None,)                          All
-(0.0892335017522 minutes)   None       (None,)                          All
+(2.3345758001 minutes)      DNA        ('DNA', 'QUAL', 'QNAME')         All
+(2.91747886737 minutes)     QUAL       ('DNA', 'QUAL', 'QNAME')         All
+(3.85382165114 minutes)     QNAME      ('DNA', 'QUAL', 'QNAME')         All
+(2.83744401932 minutes)     None       ('DNA', 'QUAL', 'QNAME')         All
+(5.93935928345 minutes)     DNA        ('DNA', 'QUAL')                  All
+(5.48512871663 minutes)     QUAL       ('DNA', 'QUAL')                  All
+(4.82888338168 minutes)     QNAME      ('DNA', 'QUAL')                  All
+(5.01118438641 minutes)     None       ('DNA', 'QUAL')                  All
+(3.38339544932 minutes)     DNA        ('QUAL', 'QNAME')                All
+(3.45257088343 minutes)     QUAL       ('QUAL', 'QNAME')                All
+(5.16640766462 minutes)     QNAME      ('QUAL', 'QNAME')                All
+(4.31718771458 minutes)     None       ('QUAL', 'QNAME')                All
+(4.29210780064 minutes)     DNA        ('DNA', 'QNAME')                 All
+(4.27810624838 minutes)     QUAL       ('DNA', 'QNAME')                 All
+(6.30826818546 minutes)     QNAME      ('DNA', 'QNAME')                 All
+(4.31755655209 minutes)     None       ('DNA', 'QNAME')                 All
+(7.60646115144 minutes)     DNA        ('DNA',)                         All
+(10.3870936831 minutes)     QUAL       ('DNA',)                         All
+(5.85630671581 minutes)     QNAME      ('DNA',)                         All
+(6.39971796672 minutes)     None       ('DNA',)                         All
+(6.96401426792 minutes)     DNA        ('QUAL',)                        All
+(6.8364989837 minutes)      QUAL       ('QUAL',)                        All
+(6.95274269978 minutes)     QNAME      ('QUAL',)                        All
+(7.8917345643 minutes)      None       ('QUAL',)                        All
+(6.10804513295 minutes)     DNA        ('QNAME',)                       All
+(6.31539324919 minutes)     QUAL       ('QNAME',)                       All
+(7.17378214995 minutes)     QNAME      ('QNAME',)                       All
+(4.65198340019 minutes)     None       ('QNAME',)                       All
+(7.19780898492 minutes)     DNA        (None,)                          All
+(7.36412746906 minutes)     QUAL       (None,)                          All
+(7.51234973272 minutes)     QNAME      (None,)                          All
+(7.21773494879 minutes)     None       (None,)                          All
 
 All done!
 Size (compressed)    Sort:    Raw Tables:                 Raw stats:
-          2745473    QUAL     ('DNA', 'QUAL', 'QNAME')    QUAL.raw : [1487597, '2.2'] DNA.raw : [935959, '0.2'] QNAME_1.raw : 510 QNAME_2.raw : 159528 QNAME_3.raw : 161879
-          2768732    DNA      ('DNA', 'QUAL', 'QNAME')    DNA.raw : [756426, '1.1'] QUAL.raw : [1690312, '2.2'] QNAME_1.raw : 508 QNAME_2.raw : 159808 QNAME_3.raw : 161678
-          2802126    QNAME    ('DNA', 'QUAL', 'QNAME')    QNAME_1.raw : 214 QNAME_2.raw : 4192 QNAME_3.raw : 149519 DNA.raw : [946462, '0.2'] QUAL.raw : [1701739, '1.1']
-          2837749    DNA      ('DNA', 'QNAME')            DNA.raw : [756426, '1.1'] QUAL.key : 273826 QUAL : [1485503, '2.2'] QNAME_1.raw : 508 QNAME_2.raw : 159808 QNAME_3.raw : 161678
-          2838636    QUAL     ('QUAL', 'QNAME')           QUAL.raw : [1487597, '2.2'] DNA.key : 273861 DNA : [755261, '0.2'] QNAME_1.raw : 510 QNAME_2.raw : 159528 QNAME_3.raw : 161879
-          2854580    QUAL     ('DNA', 'QUAL')             QUAL.raw : [1487597, '2.2'] DNA.raw : [935959, '0.2'] QNAME.key : 277099 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519
-          2862409    QNAME    ('DNA', 'QNAME')            QNAME_1.raw : 214 QNAME_2.raw : 4192 QNAME_3.raw : 149519 DNA.raw : [946462, '0.2'] QUAL.key : 276519 QUAL : [1485503, '2.2']
-          2877502    DNA      ('DNA', 'QUAL')             DNA.raw : [756426, '1.1'] QUAL.raw : [1690312, '2.2'] QNAME.key : 276839 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519
-          2880615    QUAL     ('DNA', 'QNAME')            QUAL.key : 137236 QUAL : [1485503, '2.2'] DNA.raw : [935959, '0.2'] QNAME_1.raw : 510 QNAME_2.raw : 159528 QNAME_3.raw : 161879
-          2887448    QNAME    ('QUAL', 'QNAME')           QNAME_1.raw : 214 QNAME_2.raw : 4192 QNAME_3.raw : 149519 DNA.key : 276523 DNA : [755261, '0.2'] QUAL.raw : [1701739, '1.1']
-          2904682    DNA      ('QUAL', 'QNAME')           DNA.key : 137115 DNA : [755261, '0.2'] QUAL.raw : [1690312, '2.2'] QNAME_1.raw : 508 QNAME_2.raw : 159808 QNAME_3.raw : 161678
-          2940580    QNAME    ('DNA', 'QUAL')             QNAME.key : 138454 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519 DNA.raw : [946462, '0.2'] QUAL.raw : [1701739, '1.1']
-          2946519    DNA      ('DNA',)                    DNA.raw : [756426, '1.1'] QUAL.key : 273826 QUAL : [1485503, '2.2'] QNAME.key : 276839 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519
-          2947731    QNAME    ('QNAME',)                  QNAME_1.raw : 214 QNAME_2.raw : 4192 QNAME_3.raw : 149519 DNA.key : 276523 DNA : [755261, '0.2'] QUAL.key : 276519 QUAL : [1485503, '2.2']
-          2947743    QUAL     ('QUAL',)                   QUAL.raw : [1487597, '2.2'] DNA.key : 273861 DNA : [755261, '0.2'] QNAME.key : 277099 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519
-          2965989    None     ('DNA', 'QUAL', 'QNAME')    QNAME_1.raw : 214 QNAME_2.raw : 159554 QNAME_3.raw : 161787 DNA.raw : [942589, '3.1'] QUAL.raw : [1701845, '1.1']
-          2973699    DNA      ('QNAME',)                  DNA.key : 137115 DNA : [755261, '0.2'] QUAL.key : 273826 QUAL : [1485503, '2.2'] QNAME_1.raw : 508 QNAME_2.raw : 159808 QNAME_3.raw : 161678
-          2973778    QUAL     ('QNAME',)                  QUAL.key : 137236 QUAL : [1485503, '2.2'] DNA.key : 273861 DNA : [755261, '0.2'] QNAME_1.raw : 510 QNAME_2.raw : 159528 QNAME_3.raw : 161879
-          2989722    QUAL     ('DNA',)                    QUAL.key : 137236 QUAL : [1485503, '2.2'] DNA.raw : [935959, '0.2'] QNAME.key : 277099 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519
-          3000863    QNAME    ('DNA',)                    QNAME.key : 138454 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519 DNA.raw : [946462, '0.2'] QUAL.key : 276519 QUAL : [1485503, '2.2']
-          3013452    DNA      ('QUAL',)                   DNA.key : 137115 DNA : [755261, '0.2'] QUAL.raw : [1690312, '2.2'] QNAME.key : 276839 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519
-          3024924    None     ('DNA', 'QNAME')            QNAME_1.raw : 214 QNAME_2.raw : 159554 QNAME_3.raw : 161787 DNA.raw : [942589, '3.1'] QUAL.key : 275277 QUAL : [1485503, '2.2']
-          3025902    QNAME    ('QUAL',)                   QNAME.key : 138454 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519 DNA.key : 276523 DNA : [755261, '0.2'] QUAL.raw : [1701739, '1.1']
-          3052158    None     ('QUAL', 'QNAME')           QNAME_1.raw : 214 QNAME_2.raw : 159554 QNAME_3.raw : 161787 DNA.key : 273497 DNA : [755261, '0.2'] QUAL.raw : [1701845, '1.1']
-          3075112    None     ('DNA', 'QUAL')             QNAME.key : 276753 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519 DNA.raw : [942589, '3.1'] QUAL.raw : [1701845, '1.1']
-          3082469    DNA      (None,)                     DNA.key : 137115 DNA : [755261, '0.2'] QUAL.key : 273826 QUAL : [1485503, '2.2'] QNAME.key : 276839 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519
-          3082885    QUAL     (None,)                     QUAL.key : 137236 QUAL : [1485503, '2.2'] DNA.key : 273861 DNA : [755261, '0.2'] QNAME.key : 277099 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519
-          3086185    QNAME    (None,)                     QNAME.key : 138454 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519 DNA.key : 276523 DNA : [755261, '0.2'] QUAL.key : 276519 QUAL : [1485503, '2.2']
-          3111093    None     ('QNAME',)                  QNAME_1.raw : 214 QNAME_2.raw : 159554 QNAME_3.raw : 161787 DNA.key : 273497 DNA : [755261, '0.2'] QUAL.key : 275277 QUAL : [1485503, '2.2']
-          3134047    None     ('DNA',)                    QNAME.key : 276753 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519 DNA.raw : [942589, '3.1'] QUAL.key : 275277 QUAL : [1485503, '2.2']
-          3161281    None     ('QUAL',)                   QNAME.key : 276753 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519 DNA.key : 273497 DNA : [755261, '0.2'] QUAL.raw : [1701845, '1.1']
-          3220216    None     (None,)                     QNAME.key : 276753 QNAME_1 : 214 QNAME_2 : 4192 QNAME_3 : 149519 DNA.key : 273497 DNA : [755261, '0.2'] QUAL.key : 275277 QUAL : [1485503, '2.2']
+        271821249    QUAL     ('DNA', 'QUAL', 'QNAME')    QUAL.raw : [137272420, '2.2'] DNA.raw : [95416946, '2.2'] QNAME_1.raw : 7617093 QNAME_2.raw : 15645298 QNAME_3.raw : 15869492
+        274112292    QNAME    ('DNA', 'QUAL', 'QNAME')    QNAME_1.raw : 11523 QNAME_2.raw : 396943 QNAME_3.raw : 14676332 DNA.raw : [93924895, '2.2'] QUAL.raw : [165102599, '1.1']
+        278399077    QUAL     ('QUAL', 'QNAME')           QUAL.raw : [137272420, '2.2'] DNA.key : 32923615 DNA : [69071159, '0.2'] QNAME_1.raw : 7617093 QNAME_2.raw : 15645298 QNAME_3.raw : 15869492
+        278755833    DNA      ('DNA', 'QNAME')            DNA.raw : [69145778, '0.2'] QUAL.key : 32929386 QUAL : [137254691, '3.1'] QNAME_1.raw : 7826712 QNAME_2.raw : 15727921 QNAME_3.raw : 15871345
+        278923935    DNA      ('DNA', 'QUAL', 'QNAME')    DNA.raw : [69145778, '0.2'] QUAL.raw : [170352179, '1.1'] QNAME_1.raw : 7826712 QNAME_2.raw : 15727921 QNAME_3.raw : 15871345
+        279267421    QNAME    ('DNA', 'QNAME')            QNAME_1.raw : 11523 QNAME_2.raw : 396943 QNAME_3.raw : 14676332 DNA.raw : [93924895, '2.2'] QUAL.key : 33003037 QUAL : [137254691, '3.1']
+        280817584    QUAL     ('DNA', 'QUAL')             QUAL.raw : [137272420, '2.2'] DNA.raw : [95416946, '2.2'] QNAME.key : 33043420 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332
+        282419721    QNAME    ('QUAL', 'QNAME')           QNAME_1.raw : 11523 QNAME_2.raw : 396943 QNAME_3.raw : 14676332 DNA.key : 33161165 DNA : [69071159, '0.2'] QUAL.raw : [165102599, '1.1']
+        285310498    QUAL     ('DNA', 'QNAME')            QUAL.key : 13506978 QUAL : [137254691, '3.1'] DNA.raw : [95416946, '2.2'] QNAME_1.raw : 7617093 QNAME_2.raw : 15645298 QNAME_3.raw : 15869492
+        287395412    QUAL     ('QUAL',)                   QUAL.raw : [137272420, '2.2'] DNA.key : 32923615 DNA : [69071159, '0.2'] QNAME.key : 33043420 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332
+        287574850    QNAME    ('QNAME',)                  QNAME_1.raw : 11523 QNAME_2.raw : 396943 QNAME_3.raw : 14676332 DNA.key : 33161165 DNA : [69071159, '0.2'] QUAL.key : 33003037 QUAL : [137254691, '3.1']
+        287615721    DNA      ('DNA',)                    DNA.raw : [69145778, '0.2'] QUAL.key : 32929386 QUAL : [137254691, '3.1'] QNAME.key : 33201068 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332
+        287741941    QNAME    ('DNA', 'QUAL')             QNAME.key : 13629649 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332 DNA.raw : [93924895, '2.2'] QUAL.raw : [165102599, '1.1']
+        287783823    DNA      ('DNA', 'QUAL')             DNA.raw : [69145778, '0.2'] QUAL.raw : [170352179, '1.1'] QNAME.key : 33201068 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332
+        291888326    QUAL     ('QNAME',)                  QUAL.key : 13506978 QUAL : [137254691, '3.1'] DNA.key : 32923615 DNA : [69071159, '0.2'] QNAME_1.raw : 7617093 QNAME_2.raw : 15645298 QNAME_3.raw : 15869492
+        292143545    None     ('DNA', 'QUAL', 'QNAME')    QNAME_1.raw : 11523 QNAME_2.raw : 15675788 QNAME_3.raw : 15942048 DNA.raw : [93845134, '0.2'] QUAL.raw : [166669052, '1.1']
+        292183269    DNA      ('QNAME',)                  DNA.key : 13502055 DNA : [69071159, '0.2'] QUAL.key : 32929386 QUAL : [137254691, '3.1'] QNAME_1.raw : 7826712 QNAME_2.raw : 15727921 QNAME_3.raw : 15871345
+        292351371    DNA      ('QUAL', 'QNAME')           DNA.key : 13502055 DNA : [69071159, '0.2'] QUAL.raw : [170352179, '1.1'] QNAME_1.raw : 7826712 QNAME_2.raw : 15727921 QNAME_3.raw : 15871345
+        292897070    QNAME    ('DNA',)                    QNAME.key : 13629649 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332 DNA.raw : [93924895, '2.2'] QUAL.key : 33003037 QUAL : [137254691, '3.1']
+        294306833    QUAL     ('DNA',)                    QUAL.key : 13506978 QUAL : [137254691, '3.1'] DNA.raw : [95416946, '2.2'] QNAME.key : 33043420 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332
+        295743894    None     ('DNA', 'QNAME')            QNAME_1.raw : 11523 QNAME_2.raw : 15675788 QNAME_3.raw : 15942048 DNA.raw : [93845134, '0.2'] QUAL.key : 33014710 QUAL : [137254691, '3.1']
+        296049370    QNAME    ('QUAL',)                   QNAME.key : 13629649 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332 DNA.key : 33161165 DNA : [69071159, '0.2'] QUAL.raw : [165102599, '1.1']
+        300334196    None     ('QUAL', 'QNAME')           QNAME_1.raw : 11523 QNAME_2.raw : 15675788 QNAME_3.raw : 15942048 DNA.key : 32964626 DNA : [69071159, '0.2'] QUAL.raw : [166669052, '1.1']
+        300884661    QUAL     (None,)                     QUAL.key : 13506978 QUAL : [137254691, '3.1'] DNA.key : 32923615 DNA : [69071159, '0.2'] QNAME.key : 33043420 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332
+        301043157    DNA      (None,)                     DNA.key : 13502055 DNA : [69071159, '0.2'] QUAL.key : 32929386 QUAL : [137254691, '3.1'] QNAME.key : 33201068 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332
+        301204499    QNAME    (None,)                     QNAME.key : 13629649 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332 DNA.key : 33161165 DNA : [69071159, '0.2'] QUAL.key : 33003037 QUAL : [137254691, '3.1']
+        301211259    DNA      ('QUAL',)                   DNA.key : 13502055 DNA : [69071159, '0.2'] QUAL.raw : [170352179, '1.1'] QNAME.key : 33201068 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332
+        302886612    None     ('DNA', 'QUAL')             QNAME.key : 27287628 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332 DNA.raw : [93845134, '0.2'] QUAL.raw : [166669052, '1.1']
+        303934545    None     ('QNAME',)                  QNAME_1.raw : 11523 QNAME_2.raw : 15675788 QNAME_3.raw : 15942048 DNA.key : 32964626 DNA : [69071159, '0.2'] QUAL.key : 33014710 QUAL : [137254691, '3.1']
+        306486961    None     ('DNA',)                    QNAME.key : 27287628 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332 DNA.raw : [93845134, '0.2'] QUAL.key : 33014710 QUAL : [137254691, '3.1']
+        311077263    None     ('QUAL',)                   QNAME.key : 27287628 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332 DNA.key : 32964626 DNA : [69071159, '0.2'] QUAL.raw : [166669052, '1.1']
+        314677612    None     (None,)                     QNAME.key : 27287628 QNAME_1 : 11523 QNAME_2 : 396943 QNAME_3 : 14676332 DNA.key : 32964626 DNA : [69071159, '0.2'] QUAL.key : 33014710 QUAL : [137254691, '3.1']
+Parameters found to be the best for this data type:
+    --sort QUAL  --raw DNA QUAL QNAME  --pattern 2.2 2.2
 
-  Parameters found to be the best for this data type:
-      --sort QUAL --raw DNA QUAL QNAME --pattern 0.2 2.2
-
-  Writing final config...
-  Archiving results and cleaning up temp directory...
-  All Done! :)
+Writing final config...
+Archiving results and cleaning up temp directory...
+All Done! :)
 ```
 
 This will output sample.fastq.uQ, which is the data encoded with the best combination of parameters found, however as this was only a sample of the data we are really far more interested in what parameter combination was found to be best, output on the final line. Note, as you become familiar with sort/raw/pattern, you will know what you want (for example, definitely sort on QUAL, definitely DNA as a raw table, etc), then --test will just try the parameters you didn't specify, and output the best combination, and thus in many ways running on a sample is not really worth it. You might as well try it on the full dataset.
