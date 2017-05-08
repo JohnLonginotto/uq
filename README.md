@@ -1,15 +1,14 @@
 # uQ - binary FASTQ
 
 ```
-  uQ is a tool to convert FASTQ files into a smaller, easily compressable binary format, and back again.
-  To see results, skip to the bottom.
+  uQ is a lossless FASTQ binary encoder. uQ does not perform compression itself (uQ files are just numpy arrays), but if provided the path to a compressing program, uQ can test different settings to optimise the binary encoding for your specific compressor and your specific data. This means one can use whatever compression algorithm they like, and be confident they are getting a very small output. Typically LZMA+uQ will give the smallest filesize of any FASTQ compressor currently available.
 ```
 
 # Why use uQ?
 
-1. Being a binary format, not only does a uQ file take up considerably less space than a FASTQ file before compression, but a uQ file will often compress down to half the size of a FASTQ file **after compression**. Win win - and you don't have to rely on some no-longer-supported, one-off compression program for long term storage. Use whatever compressor you're comfortable with, as uQ will work with your compressor to define a encoding scheme specific to your data and your compressor.
+1. Being a binary format, not only does a uQ file take up considerably less space than a FASTQ file before compression (meaning one can store many of them in memory at once), but a uQ file will often compress down to half the size of it's FASTQ equivilent **regardless of the compression program you use**. This is ideal if you wish to use a popular copmression tool for long-term storage.
 
-2. Being a *structured* binary format, data in a uQ file can be read and operated on much quicker than a FASTQ file. The data is really nothing more than a collection of Numpy arrays (in NPY format) all tar'd together into a single file (with a json config file). This means one could store a very large number of uQ files, all in-memory, and perform certain analyses very quickly.
+2. Being a binary format, data in a uQ file can be read and operated upon much faster than a FASTQ file can be. The data is really nothing more than a collection of Numpy arrays (in NPY format) all tar'd together into a single file (with a json config file). This means one could store, for example, all the DNA sequences from the ENCODE project in memory, on modest hardware.
 
 # How to use uQ:
 
