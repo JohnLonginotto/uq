@@ -1,10 +1,8 @@
 # uQ - binary FASTQ
-
-```
   uQ is a lossless FASTQ binary encoder.
   
   uQ does not perform compression itself (uQ files are just numpy arrays),
-  but if provided the path to a compressing program, uQ can test different 
+  but if provided the path to a compression program, uQ can test different 
   settings to optimise the binary encoding for your specific compressor and
   your specific data. This means one can use whatever compression algorithm
   they like, and be confident they are getting a very small output.
@@ -12,11 +10,10 @@
   LZMA+uQ will typically give the smallest filesize of any FASTQ compressor,
   particularly for files with long/complex QNAMEs (as this data is delimited,
   encoded, and stored in a table, which aids access and compression).
-```
 
 # Why use uQ?
 
-1. Being a binary format, not only does a uQ file take up considerably less space than a FASTQ file before compression (meaning one can store many of them in memory at once), but a uQ file will often compress down to half the size of it's FASTQ equivilent **regardless of the compression program you use**. This is ideal if you wish to use a popular copmression tool for long-term storage.
+1. Being a binary format, not only does a uQ file take up considerably less space than a FASTQ file before compression (meaning one can store many of them in memory at once), but a uQ file will often compress down to half the size of it's FASTQ equivilent **whatever compression program you use**. This is ideal if you wish to use a popular compression tool for long-term storage.
 
 2. Being a binary format, data in a uQ file can be read and operated upon much faster than a FASTQ file can be. The data is really nothing more than a collection of Numpy arrays (in NPY format) all tar'd together into a single file (with a json config file). This means one could store, for example, all the DNA sequences from the ENCODE project in memory, on modest hardware.
 
