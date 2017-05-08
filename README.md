@@ -2,6 +2,7 @@
 
 ```
   uQ is a lossless FASTQ binary encoder.
+  
   uQ does not perform compression itself (uQ files are just numpy arrays),
   but if provided the path to a compressing program, uQ can test different 
   settings to optimise the binary encoding for your specific compressor and
