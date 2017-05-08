@@ -21,7 +21,7 @@
 
 Good compression depends on the compressor, the amount of information stored in the file, and how that information is physically arranged on disk before compression. As such, there are plenty of non-linear variables at play, and the only way to know what is best is to try everything (or have a good guess based on some similar data). The variables uQ currently accepts include:
 
-###--sort:
+### --sort:
 ```
   Re-sorts the FASTQ file to reduce file size. Values can be "DNA", "QUAL", "QNAME" and "None", 
   case insensitive. This will change the final output (it will be sorted), however if sorting 
@@ -29,7 +29,7 @@ Good compression depends on the compressor, the amount of information stored in 
   the smallest files.
 ```
 
-###--raw:
+### --raw:
 ```
   By default tables in uQ format are sorted and unique, with an index used to pull out the 
   values in the correct order.
@@ -45,7 +45,7 @@ Good compression depends on the compressor, the amount of information stored in 
   "DNA", "QUAL", "QNAME", and "None", and more than one value can be specified.
 ```
 
-###--pattern: 
+### --pattern: 
   ```
   While --raw changes the logical layout of the data, --pattern changes the physical layout,
   i.e. the way in which bytes are physically written to disk, such as writing/reading all 
@@ -55,7 +55,7 @@ Good compression depends on the compressor, the amount of information stored in 
   numbers mean, because...
   ```
 
-###--test:
+### --test:
 ```
   ...when --test is specified, all possible values for the above settings are tried 
   (excluding any that you have locked-in by specifying them explicitly) and the
@@ -69,7 +69,7 @@ Good compression depends on the compressor, the amount of information stored in 
   RNA-Seq will be different to ChIP-Seq which is different to WGBS, etc.
 ```
 
-###--compressor:
+### --compressor:
 ```
   How does uQ know which arrangements of the above options compresses the best? It compresses the data 
   with a compressor of your choosing with the --compressor option. This is the path or alias, i.e. "gzip".
@@ -80,21 +80,21 @@ Good compression depends on the compressor, the amount of information stored in 
   what a compressor would likely give.
 ```
 
-###--temp:
+### --temp:
 ```
   At present, data has to be written to a temporary directory after encoding to reduce memory load. 
   This is handled by the python tempfile module, which uses the system preference (usually a random 
   directory in /tmp), however you can override that here.
 ```
 
-###--pad:
+### --pad:
 ```
   Some compressors prefer it when "symbols" are byte-aligned, i.e. some factor of 8 (2/4/8/16/32). 
   --pad does this. This will definitely increase the size of the uncompressed data, but may or may 
   not decrease the size of the file after compression.
 ```
 
-###--notricks:
+### --notricks:
 ```
   In FASTQ, "N" bases also have to have quality scores. While this does not make much sense, some 
   FASTQs have all Ns with a special, unique quality score. This is enough to identify Ns, and thus
@@ -109,26 +109,26 @@ Good compression depends on the compressor, the amount of information stored in 
   decoding.
 ```
 
-###--peek:
+### --peek:
 ```
   This flag essentially makes uQ abort after analysing the file but before encoding starts.
 ```
 
-###--input:
+### --input:
 ```
   FASTQ files in when encoding, uQ files in when decoding. Unfortunately, this will have to be a 
   file and not a pipe, as the file has to be read multiple times to tune the encoder to the data
   and prevent issues that might result in an undecodable file 10 years from now.
 ```
 
-###--output: 
+### --output: 
 ```
   Path to output. If no output specified, default when making uQ files is to append ".uQ" to the end
   of the original file name, and when decompressing uQ files back to FASTQ, default is to print to
   the standard out/terminal.
 ```
 
-###--decode:
+### --decode:
 ```
   This simply reverses the encoding operation. No parameters need to be specified, it's all stored in the
   config file in the uQ tar file. I have somehow manged to write a decoder that is slower than the encoder,
