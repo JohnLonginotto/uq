@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import gc
 import os
 import re
 import sys
@@ -31,6 +32,18 @@ parser.add_argument("--pad",          action='store_true', default=False, help='
 parser.add_argument("--peek",         action='store_true', default=False, help='Optional. No output files are created, the input is just scanned and report printed to terminal.')
 parser.add_argument("--decode",       action='store_true', default=False, help='Requred if you want to convert a .uQ back to .fastq')
 args = parser.parse_args()
+
+if args.compressor:
+    ## Unfortunately, it seems subprocessing in Linux has an unhelpful requirement that all parent process memory is copied and made avalible to the subprocess - at least as a 
+    ## possibility, which in turn means starting a subprocess means doubling your memory space. This is not an issue if doubling memory is OK for you, but for most people operating
+    ## at over half system memory, this is unacceptible. The work around is to spawn a bunch of subprocesses (656 to be precise) BEFORE any real memory is used, and thus the subprocesses
+    ## will use little system memory. This is an incredibly dumb hack, but unfortunately it's built into Linux and the typical solutions (use vfork or posix_spawn) do not have easy implimentations
+    last_subprocess_used = 0
+    subprocesses = []
+    DEVNULL = open(os.devnull,'w')
+    for x in range(656):
+        p = subprocess.Popen( args.compressor + ' | wc -c', stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=DEVNULL, shell=True)
+        subprocesses.append(p)
 
 def error(message):
     print message
@@ -78,7 +91,7 @@ if not args.decode:
             self.message = ''
         def update(self):
             self.current += 1
-            if self.current & 8191 == 8191: # an efficient way of saying "do somthing every couple of FASTQ entrys"
+            if self.current & 65535 == 65535: # an efficient way of saying "do somthing every couple of FASTQ entrys"
                 sys.stdout.write('\033[A')
                 sys.stdout.flush()
                 print self.message, '(' + str( (self.current/float(self.total))*100)[:5] + '%)'
@@ -138,23 +151,27 @@ if not args.decode:
                     except ValueError:
                         temp_dna  += N_base                       << dna_bits_done
                         temp_qual += N_qual[dna[base]]            << qual_bits_done  # This line is why qualities and DNA are analysed at the same time.
-
                     dna_bits_done += bits_per_base
-                    if dna_bits_done >= 8:
+                    qual_bits_done += bits_per_quality
+
+                    while dna_bits_done > 8:
                         dna_bits_done -= 8
                         dna_array[row][dna_byte_position] = temp_dna & 255
                         temp_dna >>= 8
                         dna_byte_position -= 1
 
-                    qual_bits_done += bits_per_quality
-                    if qual_bits_done >= 8:
+                    while qual_bits_done > 8:
                         qual_bits_done -= 8
                         qual_array[row][qual_byte_position] = temp_qual & 255
                         temp_qual >>= 8
                         qual_byte_position -= 1
 
-                dna_array[row][dna_byte_position] = temp_dna
-                qual_array[row][qual_byte_position] = temp_qual
+                # Add the last byte of data:
+                dna_array[row][dna_byte_position]   = temp_dna  ; dna_byte_position -= 1
+                qual_array[row][qual_byte_position] = temp_qual ; qual_byte_position -= 1
+                # As dna_byte_position/qual_byte_position may not be zero, memory not written to needs to be zero'd out (I use malloc not calloc):
+                while dna_byte_position  >= 1: dna_byte_position  -= 1; dna_array[row][dna_byte_position]   = 0
+                while qual_byte_position >= 1: qual_byte_position -= 1; qual_array[row][qual_byte_position] = 0
                 status.update()
 
         ## We send back both the numpy representation of the array, and the raw pointer (to delete the array manually if we wish), and the functions to free it.
@@ -205,26 +222,28 @@ if not args.decode:
                         temp_qual += qualities.index(quals[base]) << qual_bits_done
                     except ValueError:
                         temp_dna  += N_base                       << dna_bits_done
-                        temp_qual += N_qual[dna[base]]            << qual_bits_done
+                        temp_qual += N_qual[dna[base]]            << qual_bits_done  # This line is why qualities and DNA are analysed at the same time.
                     dna_bits_done += bits_per_base
-                    if dna_bits_done  >= 8:
+                    qual_bits_done += bits_per_quality
+
+                    while dna_bits_done  > 8:
                         dna_bits_done -= 8
                         dna_array[row][dna_byte_position] = temp_dna & 255
                         temp_dna >>= 8
                         dna_byte_position -= 1
-                    qual_bits_done += bits_per_quality
-                    if qual_bits_done  >= 8:
+
+                    while qual_bits_done  > 8:
                         qual_bits_done -= 8
                         qual_array[row][qual_byte_position] = temp_qual & 255
                         temp_qual >>= 8
                         qual_byte_position -= 1
 
                 # Add the '1' as the most significant bit:
-                dna_array[row][dna_byte_position]   = temp_dna  + (variable_read_lengths << (dna_bits_done))
-                qual_array[row][qual_byte_position] = temp_qual + (variable_read_lengths << (qual_bits_done))
+                dna_array[row][dna_byte_position]   = temp_dna  + (variable_read_lengths << (dna_bits_done))  ; dna_byte_position -= 1
+                qual_array[row][qual_byte_position] = temp_qual + (variable_read_lengths << (qual_bits_done)) ; qual_byte_position -= 1
                 # As dna_byte_position/qual_byte_position may not be zero, memory not written to needs to be zero'd out (I use malloc not calloc):
-                while dna_byte_position  != 0: dna_byte_position  -= 1; dna_array[row][dna_byte_position]   = 0
-                while qual_byte_position != 0: qual_byte_position -= 1; qual_array[row][qual_byte_position] = 0
+                while dna_byte_position  >= 1: dna_byte_position  -= 1; dna_array[row][dna_byte_position]   = 0
+                while qual_byte_position >= 1: qual_byte_position -= 1; qual_array[row][qual_byte_position] = 0
                 status.update()
 
         ## We send back both the numpy representation of the array, and the raw pointer (to delete the array manually if we wish), and the functions to free it.
@@ -233,19 +252,6 @@ if not args.decode:
         qual_array = numpy.asarray( ffi.buffer(qual_array))
         qual_array.shape = (total_reads,quality_bytes_per_row)
         return ((dna_array,dna_pointer),(qual_array,qual_pointer),lib)
-
-
-
-    ## Two helper functions that convert numpy arrays from standard arrays to structured arrays and back. It's really just changing metadata.
-    def struct_to_std(ar):
-        length = len(ar)
-        columns = len(ar[0])
-        ar.dtype = 'uint8'
-        ar.shape = (length,columns)
-    def std_to_struct(ar):
-        length,columns = ar.shape
-        ar.dtype = ','.join(columns*['uint8'])
-        ar.shape = length
 
     ## Depending on the user defined or optimal --pattern for the DNA and QUAL tables, how the bytes of those tables are arranged on disk (the pattern) is determined below:
     def write_pattern(table,filename):
@@ -267,17 +273,15 @@ if not args.decode:
     def write_out(table,filename):
         with open(os.path.join(temp_directory,filename),'wb') as f: numpy.save( f, table )
 
-    ## Read and load. asfortran/ascontiguous is figured out by numpy as it's stored in the file. The unrotation of rotated data happens later, as that info is stored in the config.
-    def read_in(filename):
-        return numpy.load(os.path.join(temp_directory,filename))
-
-    ## How --test knows what the compressed file size will be - it compresses the file! Uncomment the top to lines and comment out their counterpart two lines to work with compressor that don't work with data on stdin.
+    # Tests to see if sending only the first X Mb of data doesn't work. The results are way off compared to sending the whole file for test compression.
     def compressed_size(table):
         if not args.compressor: return table.nbytes
-        #write_out(table,'delete_me.temp')
-        #p = subprocess.Popen(args.compressor + ' ' + os.path.join(temp_directory,'delete_me.temp') + ' /dev/stdout | wc -c', stdin=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
-        p = subprocess.Popen(args.compressor + ' | wc -c', stdin=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
-        numpy.save(p.stdin,table)
+        global last_subprocess_used
+        p = subprocesses[last_subprocess_used]
+        try: numpy.save(p.stdin,table)
+        except IOError: pass
+        last_subprocess_used += 1
+        print last_subprocess_used
         return int(p.communicate()[0])
 
     ## How uq.py tests different --patterns to see which compresses the best. 
@@ -289,20 +293,45 @@ if not args.decode:
         elif filename.startswith('QUAL'): pattern = None if args.pattern is None else args.pattern[1] 
         else: error("ERROR: This should never happen!")
 
+        ## This is the same as the below, but without all the gc.collect()s. Perhaps without the gc.collect is better?
+        #results = []
+        #if pattern in ('0.1',None): results.append([ compressed_size(numpy.ascontiguousarray(table)               ), '0.1' ])
+        #if pattern in ('2.1',None): results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,2))), '2.1' ])
+        #if pattern in ('0.2',None): results.append([ compressed_size(numpy.asfortranarray(table)                  ), '0.2' ])
+        #if pattern in ('2.2',None): results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,2))   ), '2.2' ])
+        #if pattern in ('1.1',None): results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,1))), '1.1' ]) # This
+        #if pattern in ('3.1',None): results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,3))), '3.1' ]) # This
+        #if pattern in ('1.2',None): results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,1))   ), '1.2' ]) # This
+        #if pattern in ('3.2',None): results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,3))   ), '3.2' ]) # This
+        #return sorted(results)[0]
+
         results = []
-        #struct_to_std(table)
-        if pattern in ('0.1',None): results.append([ compressed_size(numpy.ascontiguousarray(table)               ), '0.1' ])
-        if pattern in ('2.1',None): results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,2))), '2.1' ])
-        if pattern in ('0.2',None): results.append([ compressed_size(numpy.asfortranarray(table)                  ), '0.2' ])
-        if pattern in ('2.2',None): results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,2))   ), '2.2' ])
+        if pattern in ('0.1','0.2',None):
+            if pattern in ('0.1',None): table = numpy.ascontiguousarray(table) ; gc.collect() ; results.append([compressed_size(table),'0.1'])
+            if pattern in ('0.2',None): table = numpy.asfortranarray(table)    ; gc.collect() ; results.append([compressed_size(table),'0.2'])
 
-        if pattern in ('1.1',None): results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,1))), '1.1' ]) # This
-        if pattern in ('3.1',None): results.append([ compressed_size(numpy.ascontiguousarray(numpy.rot90(table,3))), '3.1' ]) # This
-        if pattern in ('1.2',None): results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,1))   ), '1.2' ]) # This
-        if pattern in ('3.2',None): results.append([ compressed_size(numpy.asfortranarray(numpy.rot90(table,3))   ), '3.2' ]) # This
-        #std_to_struct(table)
+        if pattern in ('1.1','1.2',None):
+            table = numpy.rot90(table,1) ; gc.collect()
+
+            if pattern in ('1.2',None): table = numpy.asfortranarray(table)    ; gc.collect() ; results.append([compressed_size(table),'1.2'])
+            if pattern in ('1.1',None): table = numpy.ascontiguousarray(table) ; gc.collect() ; results.append([compressed_size(table),'1.1'])
+
+        if pattern in ('2.1','2.2',None):
+            if pattern is None: table = numpy.rot90(table,1) ; gc.collect()
+            else:               table = numpy.rot90(table,2) ; gc.collect()
+
+            if pattern in ('2.1',None): table = numpy.ascontiguousarray(table) ; gc.collect() ; results.append([compressed_size(table),'2.1'])
+            if pattern in ('2.2',None): table = numpy.asfortranarray(table)    ; gc.collect() ; results.append([compressed_size(table),'2.2'])
+
+        if pattern in ('3.1','3.2',None):
+            if pattern is None: table = numpy.rot90(table,1) ; gc.collect()
+            else:               table = numpy.rot90(table,3) ; gc.collect()
+
+            if pattern in ('3.2',None): table = numpy.asfortranarray(table)    ; gc.collect() ; results.append([compressed_size(table),'3.2'])
+            if pattern in ('3.1',None): table = numpy.ascontiguousarray(table) ; gc.collect() ; results.append([compressed_size(table),'3.1'])
+
+        #for result in sorted(results): print filename,result
         return sorted(results)[0]
-
 
 
     ## OK Now we really get into it:
@@ -380,7 +409,7 @@ if not args.decode:
 
             for sep in separators.copy():
                 if qname[len(prefix):].count(sep) != separators[sep]:
-                    del separators[sep]
+                    del separators[sep]; gc.collect()
                     not_separators.add(sep)
 
             # Get DNA max/min:
@@ -399,7 +428,7 @@ if not args.decode:
     for sep in separators.copy():
         if suffix.count(sep) != 0:
             separators[sep] -= suffix.count(sep)
-            if separators[sep] == 0: del separators[sep]
+            if separators[sep] == 0: del separators[sep]; gc.collect()
 
     def order_seps(qname,prefix,suffix,separators):
         unordered_seps = ''.join(separators) # concatinates separators
@@ -497,9 +526,11 @@ if not args.decode:
     print '  [Total distribution]'
     print '    - the following values were seen as quality scores:',' '.join(sorted(quals)),'(' + str(len(quals)) + ' in total)'
     print '    - There distribution is:'
+
     for qual in quals:
         percentage = (qual_graph[qual]/total_bases)*100
-        print '     ',qual,'|'+('#'*int(percentage/2)).ljust(50)+'|', ('%.3f'%percentage).rjust(7)+'%', str(qual_graph[qual]).rjust(12)
+        print '     ', qual, '|'+('#'*int(percentage/2)).ljust(50)+'|', ('%.3f'%percentage).rjust(7)+'%', str(qual_graph[qual]).rjust(12)
+
     if   total_quals <= 4:                    bits_per_quality = 2
     elif total_quals <= 8   and not args.pad: bits_per_quality = 3
     elif total_quals <= 16:                   bits_per_quality = 4
@@ -568,7 +599,7 @@ if not args.decode:
                             column['format'] = 'strings'
                             column['longest'] = max(map(len,column['map']))
                             del column['map']
-
+                        gc.collect()
         qnames = qname_reader(args.input,prefix,suffix)
         for entries_read,qname in enumerate(qnames):
             if len(qname) != cols:
@@ -597,6 +628,7 @@ if not args.decode:
                         columns[idx]['longest'] = len(str(columns[idx]['max'])) # The length of the string representation of the largest number.
                         del columns[idx]['min']
                         del columns[idx]['max']
+                        gc.collect()
                 elif columns[idx]['format'] == 'strings':
                     if len(column) > columns[idx]['longest']: columns[idx]['longest'] = len(column)
             if entries_read == target:
@@ -623,7 +655,7 @@ if not args.decode:
                         column['min'] = min(_)
                         if min(_) < 0 or max(_) > map_len: column['offset'] = True
                         else: column['offset'] = False
-                        del column['map']
+                        del column['map']; gc.collect()
                     else: column['map'] = sorted(column['map'])
                 except:
                     column['map'] = sorted(column['map']) # ASCII sort the map (and change set to list for JSON encoding)
@@ -641,6 +673,7 @@ if not args.decode:
                 print 'I havent implimented this yet'; exit()
 
             print '    - Column',idx+1,'is type',column['format'],'stored as',column['dtype']
+            gc.collect()
     else: print 'Pass 2 of 4: Skipped as there are no delimiters common to all QNAMEs'
     print '\n'
 
@@ -678,7 +711,7 @@ if not args.decode:
     write_out(arrays[1][0],'QUAL.temp') # up
     arrays[2].free(arrays[0][1])        # system
     arrays[2].free(arrays[1][1])        # memory
-    del arrays                          # manually
+    del arrays; gc.collect()            # manually
     print ''
 
     ## Here the QNAMEs are parsed and encoded. What a time to be alive.
@@ -699,7 +732,7 @@ if not args.decode:
         columns_list[idx].dtype = 'V'+str(numpy.dtype(columns[idx]['dtype']).itemsize)
         columns_list[idx].dtype = columns[idx]['dtype']
         write_out(columns_list[idx],column['name']+'.temp')
-    del columns_list
+    del columns_list; gc.collect()
     print ''
 
     ## This function runs a "mix", which is a specific combination of --sort and --raw, and perhaps others one day like delta encodings or --pad. It's reused when doing --test with different parameters.
@@ -707,17 +740,17 @@ if not args.decode:
         if test: test = {'sorted_on':sorted_on,'raw_tables':raw_tables}
         if sorted_on in ['DNA','QUAL']:
             not_sorted_on = 'DNA' if sorted_on == 'QUAL' else 'QUAL'
-            sort_order = encode_dna_qual(False, read_in(    sorted_on+'.temp'),     sorted_on, True if     sorted_on in raw_tables else False,test) # Final false makes a sort_order
-            encode_dna_qual(        sort_order, read_in(not_sorted_on+'.temp'), not_sorted_on, True if not_sorted_on in raw_tables else False,test) # Use the above sort_order
-            encode_qname(sort_order, True if 'QNAME' in raw_tables else False,test)
+            sort_order = encode_dna_qual(False, sorted_on, True if sorted_on in raw_tables else False,test) ; gc.collect()
+            encode_dna_qual(        sort_order, not_sorted_on, True if not_sorted_on in raw_tables else False,test) ; gc.collect()
+            encode_qname(sort_order, True if 'QNAME' in raw_tables else False,test) ; gc.collect()
         elif sorted_on == 'QNAME':
-            sort_order = encode_qname(False,True if 'QNAME' in raw_tables else False,test)
-            encode_dna_qual(sort_order,read_in('DNA.temp'),   'DNA', True if 'DNA'  in raw_tables else False,test)
-            encode_dna_qual(sort_order,read_in('QUAL.temp'), 'QUAL', True if 'QUAL' in raw_tables else False,test)
+            sort_order = encode_qname(False,True if 'QNAME' in raw_tables else False,test)   ; gc.collect()
+            encode_dna_qual(sort_order, 'DNA', True if 'DNA'  in raw_tables else False,test) ; gc.collect()
+            encode_dna_qual(sort_order, 'QUAL', True if 'QUAL' in raw_tables else False,test); gc.collect()
         else:
-            encode_qname(None, True if 'QNAME' in raw_tables else False,test)
-            encode_dna_qual(None,read_in('DNA.temp'),   'DNA', True if 'DNA'  in raw_tables else False,test)
-            encode_dna_qual(None,read_in('QUAL.temp'), 'QUAL', True if 'QUAL' in raw_tables else False,test)
+            encode_qname(None, True if 'QNAME' in raw_tables else False,test)          ; gc.collect()
+            encode_dna_qual(None, 'DNA', True if 'DNA'  in raw_tables else False,test) ; gc.collect()
+            encode_dna_qual(None, 'QUAL', True if 'QUAL' in raw_tables else False,test); gc.collect()
 
         if test:
             total_size = 0
@@ -729,54 +762,60 @@ if not args.decode:
         # Add totals to test_results here.
 
     ## The function used by run_mix to test/write the mix for DNA/QUALs
-    def encode_dna_qual(sort_order,table,table_name,raw,test): # If sort_order is a numpy.ndarray, will sort output with it. If False, will sort and return a sort_order. If None, no sorting done.
+    def encode_dna_qual(sort_order,table_name,raw,test): # If sort_order is a numpy.ndarray, will sort output with it. If False, will sort and return a sort_order. If None, no sorting done.
+        table = numpy.load(os.path.join(temp_directory,table_name+'.temp'))
         if raw:
+            out_name = table_name + '.raw'
             if sort_order is None:
-                if test: test[table_name+'.raw'] = test_patterns(table,table_name)
-                else: write_pattern(table,table_name+'.raw')
+                if test: test[out_name] = test_patterns(table,out_name)
+                else:                     write_pattern(table,out_name)
             else:
                 original_dtype = table.dtype            # pypy needs this
                 table.dtype = 'V' + str(len(table[0]))  # to be quick :(
                 if sort_order is False: sort_order = numpy.argsort(table,axis=0)
                 sort_order.shape = sort_order.shape[0]
                 table = table[sort_order]
+                gc.collect()
                 table.dtype = original_dtype
-                if test: test[table_name+'.raw'] = test_patterns(table,table_name)
-                else:    write_pattern(table,table_name+'.raw')
+                if test: test[out_name] = test_patterns(table,out_name)
+                else:                     write_pattern(table,out_name)
         else:
+            out_name = table_name + '.key'
             original_dtype = table.dtype                         # pypy currently
             table.dtype = 'V' + str(len(table[0]))               # needs this
             table,key = numpy.unique(table, return_inverse=True) # to be
+            gc.collect()
             table.shape = (len(table),1)
             table.dtype = original_dtype                         # quick :(
             key = key.astype(numpy.min_scalar_type(max(key))) ######################################################## This adds considerable time to the running of the program, because pypy hasn't impliemnted it properly yet.
+            gc.collect()
             if sort_order is None:
-                if test: test[table_name+'.key'] = compressed_size(key)
-                else: write_out(key,table_name+'.key')
+                if test: test[out_name] = compressed_size(key)
+                else: write_out(key,out_name)
             else:
                 if sort_order is False: sort_order = numpy.argsort(key)
-                if test: test[table_name+'.key'] = compressed_size(key[sort_order])
-                else: write_out(key[sort_order],table_name+'.key')
+                if test: test[out_name] = compressed_size(key[sort_order])
+                else: write_out(key[sort_order],out_name)
+            del key; gc.collect()
             table.dtype = original_dtype
             if test: test[table_name] = test_patterns(table,table_name)
-            else:                            write_pattern(table,table_name)
+            else:                       write_pattern(table,table_name)
+        del table
+        gc.collect()
         return sort_order
 
     ## The function used by run_mix to test/write the mix for QNAMEs
     def encode_qname(sort_order,raw,test): # If sort_order is False, will generate a sort_order. If sort_order is something truthy, will be used to sort. If None, no sorting.
         columns_data = []
         for column in columns:
-            columns_data.append(read_in(column['name']+'.temp'))
+            columns_data.append(numpy.load(os.path.join(temp_directory,column['name']+'.temp')))
         if raw:
             if sort_order is False:
-                #common_dtype_columns_data = numpy.stack(columns_data,axis=1) # Used to use this but it seems quite a few people don't have it in their numpy just yet. Below works fine though.
                 common_dtype_columns_data = numpy.dstack(columns_data)[0] # Stack makes a table where the dtype of every column is the same as the largest column of the inputs. This will be fixed later when writing to disk.
-
                 common_dtype_columns_data.dtype = ','.join(common_dtype_columns_data.shape[1]*[str(common_dtype_columns_data.dtype)]) # Structifys the list so rows are sorted, not each columns individually...
-
                 sort_order = numpy.argsort(common_dtype_columns_data,axis=0)
                 sort_order.shape = sort_order.shape[0] 
-                del common_dtype_columns_data
+                del common_dtype_columns_data; gc.collect()
             if type(sort_order) is numpy.ndarray:
                 for idx,column in enumerate(columns):
                     if test: test[column['name']+'.raw'] = compressed_size(columns_data[idx][sort_order])
@@ -786,32 +825,29 @@ if not args.decode:
                     if test: test[column['name']+'.raw'] = compressed_size(columns_data[idx])
                     else: write_out(columns_data[idx],column['name']+'.raw')
         else:
-            #common_dtype_columns_data = common_dtype_columns_data[common_dtype_columns_data[:,len(common_dtype_columns_data[0])-1].argsort()] # First sort does not need to be stable/mergesort.
-            #for column_idx in range(len(common_dtype_columns_data[0])-2,-1,-1):
-            #    common_dtype_columns_data = common_dtype_columns_data[common_dtype_columns_data[:,column_idx].argsort(kind='mergesort')] # First sort doesn't need to be stable.
             common_dtype_columns_data = numpy.dstack(columns_data)[0]
-
             common_dtype_columns_data.dtype = ','.join(common_dtype_columns_data.shape[1]*[str(common_dtype_columns_data.dtype)])
-
             common_dtype_columns_data, columns_key = numpy.unique(common_dtype_columns_data, return_inverse=True)
+            gc.collect()
             columns_key = columns_key.astype(numpy.min_scalar_type(max(columns_key))) ######################################################## This adds considerable time to the running of the program in pypy, because pypy hasn't impliemnted it properly yet.
             if sort_order is False: sort_order = numpy.argsort(columns_key)
             if type(sort_order) is numpy.ndarray:
                 if test: test['QNAME.key'] = compressed_size(columns_key[sort_order])
                 else: write_out(columns_key[sort_order],'QNAME.key')
-                del columns_key
+                del columns_key; gc.collect()
             else:
                 if test: test['QNAME.key'] = compressed_size(columns_key)
                 else: write_out(columns_key,'QNAME.key')
-                del columns_key
+                del columns_key; gc.collect()
             old_shape = len(common_dtype_columns_data), len(common_dtype_columns_data[0])
             common_dtype_columns_data.dtype = common_dtype_columns_data.dtype[0]
             common_dtype_columns_data.shape = old_shape
             for idx,column in enumerate(columns):
                 if test: test[column['name']] = compressed_size(common_dtype_columns_data[:,idx].astype(column['dtype']))
                 else: write_out(common_dtype_columns_data[:,idx].astype(column['dtype']),column['name'])
-            del common_dtype_columns_data
-        del columns_data
+                gc.collect()
+            del common_dtype_columns_data; gc.collect()
+        del columns_data; gc.collect()
         if type(sort_order) is numpy.ndarray: return sort_order
 
 
@@ -825,6 +861,7 @@ if not args.decode:
             if args.compressor is None: args.sort = (None,)
             for to_sort in ['DNA','QUAL','QNAME',None] if args.sort is None else [args.sort]:
                 all_results.append(run_mix(to_sort,raw_tables,True))
+                gc.collect()
                 print status.split_time().ljust(27),str(to_sort).ljust(10),str(tuple(raw_tables)).ljust(32),'All' if args.raw is None else str(args.pattern)
 
         ## Determine the best run_mix for this file:
@@ -841,14 +878,14 @@ if not args.decode:
             print str(result['total_size']).rjust(17)+'   ',
             print str(result['sorted_on']).ljust(8),
             print str(tuple(result['raw_tables'])).ljust(27),
-            del result['total_size'],result['sorted_on'],result['raw_tables']
+            del result['total_size'],result['sorted_on'],result['raw_tables']; gc.collect()
             for key,value in result.items():
-                print str(key),':',str(value),
+                print str(key)+':'+str(value),
             print ''
         print 'Parameters found to be the best for this data type:\n  ',
         if args.sort is not None and args.sort != (None,): print ' --sort',args.sort,
-        if args.raw is not None: print ' --raw',' '.join(args.raw),
-        if args.pattern is not None: print ' --pattern',' '.join(args.pattern),
+        if args.raw is not None: print ' --raw',' '.join(map(str,args.raw)),
+        if args.pattern is not None: print ' --pattern',' '.join(map(str,args.pattern)),
         print ''
 
     ## Whether the user --test'd or not, we run another mix without testing using either the user supplied settings, or the best settings from the --test.
